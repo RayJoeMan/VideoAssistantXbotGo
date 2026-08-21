@@ -1,8 +1,0 @@
-{
-  "projects": {
-    "default": "demo-aeiv-sponsors",
-    "emulator": "demo-aeiv-sponsors",
-    "dev": "aeiv-sponsors",
-    "prod": "aeiv-sponsors"
-  }
-}
