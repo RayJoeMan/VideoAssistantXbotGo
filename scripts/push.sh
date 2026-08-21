@@ -33,7 +33,15 @@ if push_with "" 2>/dev/null; then
     exit 0
 fi
 
-# 2) lacrosse-ready deploy key
+# 2) VideoAssistantXbotGo deploy key
+if [ -f "$HOME/.ssh/id_ed25519_videoassistantxbotgo" ]; then
+    if push_with "$HOME/.ssh/id_ed25519_videoassistantxbotgo" 2>/dev/null; then
+        echo "[push] OK"
+        exit 0
+    fi
+fi
+
+# 3) lacrosse-ready deploy key
 if [ -f "$HOME/.ssh/id_ed25519_lacrosseready" ]; then
     if push_with "$HOME/.ssh/id_ed25519_lacrosseready" 2>/dev/null; then
         echo "[push] OK"
@@ -41,7 +49,7 @@ if [ -f "$HOME/.ssh/id_ed25519_lacrosseready" ]; then
     fi
 fi
 
-# 3) blaine-lax-girls deploy key
+# 4) blaine-lax-girls deploy key
 if [ -f "$HOME/.ssh/id_ed25519_blaine_lax_girls" ]; then
     if push_with "$HOME/.ssh/id_ed25519_blaine_lax_girls" 2>/dev/null; then
         echo "[push] OK"
@@ -50,7 +58,7 @@ if [ -f "$HOME/.ssh/id_ed25519_blaine_lax_girls" ]; then
 fi
 
 echo "[push] FAILED — no SSH key has write access to $REMOTE ($(git remote get-url "$REMOTE"))."
-echo "[push] Fix: add one of these public keys as a DEPLOY KEY on the GitHub repo"
+echo "[push] Fix: add this public key as a DEPLOY KEY on the GitHub repo"
 echo "           (Settings -> Deploy keys -> Add deploy key):"
-echo "           $(cat "$HOME/.ssh/id_ed25519_lacrosseready.pub" 2>/dev/null || echo '~/.ssh/id_ed25519_lacrosseready.pub')"
+echo "           $(cat "$HOME/.ssh/id_ed25519_videoassistantxbotgo.pub" 2>/dev/null || echo '~/.ssh/id_ed25519_videoassistantxbotgo.pub')"
 exit 1
