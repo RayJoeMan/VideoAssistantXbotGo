@@ -63,6 +63,27 @@ app finds automatically).
   `icon.ico` / `icon.icns` from `assets/icon.svg`. `icon.icns` is created
   automatically when building on macOS.
 
+### Publishing & CI
+
+Pushing the repo to GitHub triggers a 3-OS CI matrix (`.github/workflows/ci.yml`)
+that runs tests, generates icons, builds the executable, headless-smoke-tests
+it, and uploads the per-OS artifacts from `dist/`:
+
+- `ubuntu-latest` — Linux bundle
+- `windows-latest` — Windows `.exe` build
+- `macos-latest` — macOS `.app` bundle
+
+CI runs on every branch push and pull request. The intended remote (from
+`pyproject.toml`) is `https://github.com/catch-tracker/lacrosse-video-assistant.git`.
+If that repo doesn't exist yet, create it on GitHub, then either run:
+
+```bash
+git remote set-url origin <your-repo-url>
+git push -u origin feat/executable-packaging
+```
+
+or publish the branch from VS Code's Source Control view.
+
 ## CLI tools
 
 | Command | Purpose |
