@@ -1,8 +1,7 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
+  push:          # every branch push builds per-OS artifacts (not just main)
   pull_request:
 
 jobs:
