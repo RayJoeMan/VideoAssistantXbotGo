@@ -44,6 +44,7 @@ jobs:
           { echo "### Qt QApplication smoke (exit $code)"; echo '```'; cat /tmp/qt_smoke.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Run tests
+        shell: bash   # works on all runners incl. Windows (default is PowerShell there)
         run: |
           set +e
           python -m pytest tests/ -q > /tmp/pytest.log 2>&1
