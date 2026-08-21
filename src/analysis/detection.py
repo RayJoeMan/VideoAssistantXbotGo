@@ -53,21 +53,22 @@ class DetectionConfig:
     """Tunable parameters for event detection algorithms."""
     # Shot detection
     shot_min_speed: float = 40.0         # Minimum center speed for a shot
-    shot_speed_spike: float = 30.0       # Speed increase over baseline to trigger
-    shot_min_activity: float = 0.5       # Minimum activity during shot
+    shot_speed_spike: float = 25.0       # Speed increase over baseline to trigger
+    shot_min_activity: float = 0.4       # Minimum activity during shot
     shot_lookahead_sec: float = 3.0      # Window after shot for goal confirmation
     shot_goal_activity_spike: float = 0.7 # Activity threshold for goal celebration
     
     # Save detection
+    save_min_speed: float = 25.0        # Minimum incoming speed (0-100) for a save
     save_speed_drop: float = 0.6         # Fraction speed must drop (60% reduction)
     save_position_threshold: float = 0.15 # Position near goal line (0-1 normalized)
     save_reversal_min_speed: float = 20.0 # Minimum speed after save for clear
     
     # Transition detection
     transition_midfield_zone: Tuple[float, float] = (400.0, 600.0)
-    transition_min_speed: float = 30.0
-    transition_min_duration_sec: float = 1.0
-    transition_direction_change: float = 200.0  # Minimum position delta for direction change
+    transition_min_speed: float = 40.0
+    transition_min_duration_sec: float = 1.5
+    transition_direction_change: float = 300.0  # Minimum position delta for direction change
     
     # Face-off detection
     faceoff_center_zone: Tuple[float, float] = (450.0, 550.0)
@@ -75,7 +76,7 @@ class DetectionConfig:
     faceoff_activity_ramp: float = 0.3    # Activity must rise from below this
     
     # General
-    min_event_spacing_sec: float = 5.0    # Minimum time between distinct events
+    min_event_spacing_sec: float = 8.0    # Minimum time between distinct events
     goal_confirmation_window_sec: float = 8.0  # Window to confirm goal after shot
 
 
@@ -286,8 +287,8 @@ def _detect_saves(
     time = signals["time"]
     
     for i in range(5, n - 5):
-        # Need high speed before the drop
-        if speed[i] < cfg.shot_min_speed * 0.7:
+        # Need high incoming speed (fast play, not gentle ebb)
+        if speed[i] < cfg.save_min_speed:
             continue
         
         # Look ahead for speed drop
@@ -303,8 +304,10 @@ def _detect_saves(
         if min_future > speed[i] * (1 - cfg.save_speed_drop):
             continue
         
-        # Should be near goal line (extreme position)
-        if abs(pos[i]) < abs(cfg.save_position_threshold * 1000):
+        # Must be near a goal end (extreme position), not mid-field
+        near_goal = (pos[i] < cfg.save_position_threshold * 1000.0) or \
+                    (pos[i] > 1000.0 - cfg.save_position_threshold * 1000.0)
+        if not near_goal:
             continue
         
         # Look for reversal after the stop
@@ -354,48 +357,55 @@ def _detect_transitions(
     mid_low, mid_high = cfg.transition_midfield_zone
     in_transition = False
     trans_start = 0
+    entry_side = 0  # -1 entered from the left edge, +1 from the right edge
     
     for i in range(1, n):
         in_midfield = mid_low <= pos[i] <= mid_high
         fast_enough = speed[i] >= cfg.transition_min_speed
         
-        if in_midfield and fast_enough and not in_transition:
-            # Check if crossing midfield
-            if i > 1:
-                crossed = (
-                    (pos[i - 2] < mid_low and pos[i] > mid_low) or
-                    (pos[i - 2] > mid_high and pos[i] < mid_high)
-                )
-                if crossed:
+        if not in_transition:
+            # Enter the midfield zone at speed from a clear side
+            if in_midfield and fast_enough and i > 1:
+                if pos[i - 2] < mid_low:
+                    entry_side = -1
                     in_transition = True
                     trans_start = i
-        
-        elif in_transition:
-            # Check if transition ended
-            still_fast = speed[i] >= cfg.transition_min_speed * 0.5
-            
-            if not still_fast or i == n - 1:
+                elif pos[i - 2] > mid_high:
+                    entry_side = 1
+                    in_transition = True
+                    trans_start = i
+        else:
+            # A real fast break exits the zone on the OPPOSITE side
+            exited_opposite = (
+                (entry_side == -1 and pos[i] > mid_high) or
+                (entry_side == 1 and pos[i] < mid_low)
+            )
+            if exited_opposite:
                 duration = time[i] - time[trans_start]
-                
                 if duration >= cfg.transition_min_duration_sec:
                     avg_speed = float(np.mean(speed[trans_start:i]))
-                    direction = "right" if dir_sign[trans_start] > 0 else "left"
-                    
+                    direction = "right" if entry_side == -1 else "left"
                     events.append(Event(
                         event_type=EventType.TRANSITION,
                         start_time_sec=float(time[max(0, trans_start - 15)]),
                         end_time_sec=float(time[min(n - 1, i + 15)]),
-                        peak_time_sec=float(time[trans_start + int(np.argmax(speed[trans_start:i]))]),
+                        peak_time_sec=float(
+                            time[trans_start + int(np.argmax(speed[trans_start:i]))]
+                        ),
                         confidence=min(0.5 + 0.5 * (avg_speed / 100.0), 0.95),
                         frame_range=(
                             points[max(0, trans_start - 15)].frame_num,
                             points[min(n - 1, i + 15)].frame_num,
                         ),
-                        description=f"Transition {direction} at {time[trans_start]:.1f}s, {duration:.1f}s",
+                        description=(
+                            f"Transition {direction} at {time[trans_start]:.1f}s, "
+                            f"{duration:.1f}s"
+                        ),
                         tags=["fast_break", direction],
                     ))
-                
                 in_transition = False
+            elif speed[i] < cfg.transition_min_speed * 0.4:
+                in_transition = False  # stalled — not a fast break
     
     return events
 
@@ -482,16 +492,24 @@ def _detect_turnovers(
     
     window = 15  # ~0.5 second window
     
+    # Smooth position first so camera/object jitter doesn't read as a
+    # direction change.
+    sw = min(5, max(3, n // 20))
+    if n >= sw * 2:
+        smooth_pos = np.convolve(pos, np.ones(sw) / sw, mode="same")
+    else:
+        smooth_pos = pos
+    
     for i in range(window * 2, n - window):
         # Direction before
-        pre_delta = pos[i] - pos[i - window]
+        pre_delta = smooth_pos[i] - smooth_pos[i - window]
         # Direction after
-        post_delta = pos[i + window] - pos[i]
+        post_delta = smooth_pos[i + window] - smooth_pos[i]
         
-        # Must be a clear direction change
-        if abs(pre_delta) < cfg.transition_direction_change * 0.5:
+        # Must be a clear, sustained direction change (not jitter)
+        if abs(pre_delta) < cfg.transition_direction_change:
             continue
-        if abs(post_delta) < cfg.transition_direction_change * 0.5:
+        if abs(post_delta) < cfg.transition_direction_change:
             continue
         
         # Directions must be opposite
@@ -500,7 +518,7 @@ def _detect_turnovers(
         
         # Speed should be maintained (not a stoppage)
         avg_speed = float(np.mean(speed[i - 5:i + 5]))
-        if avg_speed < 15.0:
+        if avg_speed < 25.0:
             continue
         
         events.append(Event(

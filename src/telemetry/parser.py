@@ -74,6 +74,9 @@ RE_FRAME_V14 = re.compile(
 # Detail line: Crowd{N} mot{N} Dq{N}(v,dx)... F{0-4} virx{N} realx{N}
 RE_CROWD_V14 = re.compile(r'Crowd(\d+)\s+mot(\d+)')
 RE_FAST_V14 = re.compile(r'\bF(\d+)')
+RE_DEQUE_V14 = re.compile(
+    r'Dq(\d+)\(v(-?\d+),dx-?\d+\)\(v(-?\d+),dx-?\d+\)\(v(-?\d+),dx-?\d+\)'
+)
 RE_VIRX = re.compile(r'virx([-\d.]+)\s+realx([-\d.]+)')
 # YawMC x{N} v{N} Smooth(...)dir{N} gear{N}
 RE_YAWMC = re.compile(r'YawMC\s+x([-\d.]+)\s+v([-\d.]+)')
@@ -276,31 +279,44 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
                 current.motion_objects = int(cm14.group(2))
             except ValueError:
                 pass
-            fa = RE_FAST_V14.search(line)
-            if fa:
+            # Tracked-object velocities (Dq deque): the fastest object is the
+            # play speed (ball/carrier) — far more meaningful than camera pan.
+            dq = RE_DEQUE_V14.search(line)
+            if dq:
                 try:
-                    # F{N} is the camera's activity counter (0-4 idle, up to
-                    # ~27 during play); normalize 0-30 → 0-1.
-                    current.activity_score = min(int(fa.group(1)) / 30.0, 1.0)
+                    vs = [int(dq.group(i)) for i in (2, 3, 4)]
+                    # Normalize object speed (raw ~0-400) to the classifier's
+                    # 0-100 scale (matches SDK V1.2.0 semantics).
+                    speed = max(abs(v) for v in vs) * 0.25
+                    current.center_speed = float(speed)
+                    current.raw_fields["obj_v1"] = dq.group(2)
+                    current.raw_fields["obj_v2"] = dq.group(3)
+                    current.raw_fields["obj_v3"] = dq.group(4)
+                    # Activity = how fast the play is moving (0-1); richer and
+                    # more meaningful than the camera's F counter.
+                    current.activity_score = min(speed / 100.0, 1.0)
                 except ValueError:
                     pass
+            fa = RE_FAST_V14.search(line)
+            if fa:
+                current.raw_fields["fast_level"] = fa.group(1)
             vx = RE_VIRX.search(line)
             if vx:
                 try:
-                    current.crowd_x = float(vx.group(1))
+                    # realx = the action's horizontal position in the frame;
+                    # normalize (0-2560) to the classifier's 0-1000 field scale.
+                    current.center_x = float(vx.group(2)) * (1000.0 / 2560.0)
                 except ValueError:
                     pass
-                current.raw_fields["real_x"] = vx.group(2)
+                current.raw_fields["vir_x"] = vx.group(1)
             continue
 
-        # YawMC x{N} v{N} Smooth(...)dir{N} gear{N}
+        # YawMC x{N} v{N} Smooth(...)dir{N} gear{N} — camera pan telemetry.
+        # Kept as raw fields: it describes the camera, not the ball.
         ym = RE_YAWMC.search(line)
         if ym:
-            try:
-                current.center_x = float(ym.group(1))
-                current.center_speed = float(ym.group(2))
-            except ValueError:
-                pass
+            current.raw_fields["yawmc_x"] = ym.group(1)
+            current.raw_fields["yawmc_v"] = ym.group(2)
             continue
     
     # Don't forget the last frame

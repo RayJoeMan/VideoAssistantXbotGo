@@ -156,12 +156,15 @@ def build_v14_sample(*, num_frames: int = 60) -> str:
         det = 25 if i < 20 else 27
         af = 24 if i < 20 else 26
         fval = 0 if i < 20 else min(27, i - 20)
+        # Object velocities ramp up in the active region (drives activity)
+        v = 0 if i < 20 else min(400, (i - 20) * 12)
         parts.append(
             f"UTC{ts} {fps}Frame{i + 1} Yaw{yaw:.2f} Pit{pit:.2f} "
             f"Detect{det} AFilter:P{af}"
         )
         parts.append(
-            f"Crowd25 mot22 Dq22(v0,dx0)(v0,dx0)(v0,dx0) F{fval} virx0 realx1280"
+            f"Crowd25 mot22 Dq22(v{v},dx0)(v{v},dx0)(v{v},dx0) "
+            f"F{fval} virx0 realx1280"
         )
         parts.append("YawMC x1280 v0 Smooth(in0.0,out0.0)dir0 gear32")
         parts.append("")

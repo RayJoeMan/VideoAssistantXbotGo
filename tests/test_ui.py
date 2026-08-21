@@ -69,7 +69,10 @@ class TestDetectionConfigDefaults:
         dcfg = DetectionConfig()
         ecfg = ExportConfig()
         assert dcfg.shot_min_speed == 40.0
-        assert dcfg.shot_speed_spike == 30.0
+        assert dcfg.shot_speed_spike == 25.0
+        assert dcfg.shot_min_activity == 0.4
+        assert dcfg.save_min_speed == 25.0
+        assert dcfg.min_event_spacing_sec == 8.0
         assert ecfg.pre_roll_sec == 3.0  # pre_roll is on ExportConfig
 
 
