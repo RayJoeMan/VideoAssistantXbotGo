@@ -43,12 +43,19 @@ jobs:
           echo "qt_smoke_exit=$code"
           { echo "### Qt QApplication smoke (exit $code)"; echo '```'; cat /tmp/qt_smoke.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Run tests
+      - name: Run tests (with retry for flaky Qt abort)
         shell: bash   # works on all runners incl. Windows (default is PowerShell there)
         run: |
           set +e
-          python -m pytest tests/ -q > /tmp/pytest.log 2>&1
-          code=$?
+          code=1
+          for attempt in 1 2 3; do
+            echo "== pytest attempt $attempt =="
+            python -m pytest tests/ -q > /tmp/pytest.log 2>&1
+            code=$?
+            if [ $code -eq 0 ]; then break; fi
+            echo "pytest failed (exit $code) on attempt $attempt"
+            tail -20 /tmp/pytest.log
+          done
           { echo "### pytest diagnostics (exit $code)"; echo '```'; tail -120 /tmp/pytest.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit $code
 

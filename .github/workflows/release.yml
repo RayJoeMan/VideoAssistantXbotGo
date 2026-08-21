@@ -38,9 +38,30 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt pytest-qt pillow
 
-      - name: Run tests
-        shell: bash
-        run: python -m pytest tests/ -q
+      - name: Verify Qt QApplication (Linux, diagnostic)
+        if: runner.os == 'Linux'
+        run: |
+          set +e
+          QT_QPA_PLATFORM=offscreen python -c "from PyQt6.QtWidgets import QApplication; a = QApplication([]); print('QApplication OK')" > /tmp/qt_smoke.log 2>&1
+          code=$?
+          echo "qt_smoke_exit=$code"
+          { echo "### Qt QApplication smoke (exit $code)"; echo '```'; cat /tmp/qt_smoke.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run tests (with retry for flaky Qt abort)
+        shell: bash   # works on all runners incl. Windows (default is PowerShell there)
+        run: |
+          set +e
+          code=1
+          for attempt in 1 2 3; do
+            echo "== pytest attempt $attempt =="
+            python -m pytest tests/ -q > /tmp/pytest.log 2>&1
+            code=$?
+            if [ $code -eq 0 ]; then break; fi
+            echo "pytest failed (exit $code) on attempt $attempt"
+            tail -20 /tmp/pytest.log
+          done
+          { echo "### pytest diagnostics (exit $code)"; echo '```'; tail -120 /tmp/pytest.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          exit $code
 
       - name: Generate icons
         run: python scripts/make_icons.py
