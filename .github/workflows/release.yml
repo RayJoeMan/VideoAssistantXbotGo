@@ -100,35 +100,32 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set +e
-          BODY="CI test step failed on ubuntu (run ${{ github.run_id }})."
-          if [ -f /tmp/pytest.log ]; then
-            BODY="$BODY
-
-$(tail -80 /tmp/pytest.log)"
-          else
-            BODY="$BODY
-
-(no /tmp/pytest.log — failure happened before pytest produced output)"
-          fi
-          python - "$BODY" <<'PY'
-import json, os, sys, urllib.request
-body = sys.argv[1][:7000]
-repo = os.environ["GITHUB_REPOSITORY"]
-sha = os.environ["GITHUB_SHA"]
-token = os.environ["GH_TOKEN"]
-payload = json.dumps({"body": body}).encode()
-req = urllib.request.Request(
-    f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
-    data=payload, method="POST",
-    headers={"Authorization": f"Bearer {token}",
-             "Accept": "application/vnd.github+json"},
-)
-try:
-    urllib.request.urlopen(req)
-    print("diagnostics comment posted")
-except Exception as e:
-    print("comment failed (non-fatal):", e)
-PY
+          {
+            echo "CI test step failed on ubuntu (run ${{ github.run_id }})."
+            echo
+            if [ -f /tmp/pytest.log ]; then
+              tail -80 /tmp/pytest.log
+            else
+              echo "(no /tmp/pytest.log - failure happened before pytest produced output)"
+            fi
+          } > /tmp/ci_diag.txt
+          python - "${{ github.repository }}" "${{ github.sha }}" "${{ github.token }}" <<'PY'
+          import json, os, sys, urllib.request
+          repo, sha, token = sys.argv[1], sys.argv[2], sys.argv[3]
+          body = open("/tmp/ci_diag.txt", encoding="utf-8", errors="replace").read()[:7000]
+          payload = json.dumps({"body": body}).encode()
+          req = urllib.request.Request(
+              f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
+              data=payload, method="POST",
+              headers={"Authorization": f"Bearer {token}",
+                       "Accept": "application/vnd.github+json"},
+          )
+          try:
+              urllib.request.urlopen(req)
+              print("diagnostics comment posted")
+          except Exception as e:
+              print("comment failed (non-fatal):", e)
+          PY
 
       - name: Generate icons
         run: python scripts/make_icons.py
