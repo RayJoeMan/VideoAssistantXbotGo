@@ -3,7 +3,7 @@
 import json
 import sys
 import tempfile
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -123,6 +123,51 @@ def build_sample_track(*, num_frames: int = 300, include_active: bool = True) ->
     return "\n".join(parts)
 
 
+def build_v14_sample(*, num_frames: int = 60) -> str:
+    """Build a FALCON SDK V1.4.0-format track (as recorded by real cameras)."""
+    parts = [
+        "SDKV1.4.0-0710-Type15",
+        "",
+        "setPitchInitialAngle10.22",
+        "setFieldFilterSwitch1",
+        "setYawLimitAngle112",
+        "setPitchInitialAngle5.00",
+        "setAutoZoomSwitch1",
+        "setFPts(x,y,yaw,pit)",
+        "TL:1,51.53,35.07,-32.91,10.22",
+        "BL:2,44.86,48.50,-73.44,10.22",
+        "BR:3,62.22,33.66,72.85,10.22",
+        "TR:4,47.38,29.10,35.45,10.22",
+        "TC:5,48.88,35.57,0.50,10.22",
+        "Err: Invalid y direction 2.Field validation failed",
+        "",
+        "Lacrosse yawLim112.0 areaTH500 pitchInit5.00",
+        "SDKV1.4.0-0710-Type15-pitInit5-YawLim112-ZoomState1-Start",
+        "2026-07-19 14:53:18.240",
+        "",
+    ]
+    base = datetime(2026, 7, 19, 14, 53, 18)
+    for i in range(num_frames):
+        t = base + timedelta(milliseconds=50 * i)
+        ts = t.strftime("%H:%M:%S.") + f"{int(t.microsecond / 1000):03d}"
+        fps = "" if i == 0 else "fps20 "
+        yaw = 3.70 - 0.5 * i
+        pit = 4.98
+        det = 25 if i < 20 else 27
+        af = 24 if i < 20 else 26
+        fval = 0 if i < 20 else min(27, i - 20)
+        parts.append(
+            f"UTC{ts} {fps}Frame{i + 1} Yaw{yaw:.2f} Pit{pit:.2f} "
+            f"Detect{det} AFilter:P{af}"
+        )
+        parts.append(
+            f"Crowd25 mot22 Dq22(v0,dx0)(v0,dx0)(v0,dx0) F{fval} virx0 realx1280"
+        )
+        parts.append("YawMC x1280 v0 Smooth(in0.0,out0.0)dir0 gear32")
+        parts.append("")
+    return "\n".join(parts)
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Test Fixtures
 # ══════════════════════════════════════════════════════════════════════════
@@ -155,9 +200,46 @@ def raw_falcon_sample():
     return build_sample_track(num_frames=10)
 
 
+@pytest.fixture
+def v14_track_file():
+    """Create a temporary SDK V1.4.0-format track file."""
+    content = build_v14_sample(num_frames=60)
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".track", delete=False) as f:
+        f.write(content)
+        path = Path(f.name)
+    yield path
+    path.unlink(missing_ok=True)
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Parsing Tests
 # ══════════════════════════════════════════════════════════════════════════
+
+
+class TestParseTrackFileV14:
+    """FALCON SDK V1.4.0 format (as recorded by real cameras)."""
+
+    def test_parses_v14_frames(self, v14_track_file):
+        result = parse_track_file(v14_track_file)
+        assert len(result.points) == 60
+        assert result.points[0].frame_num == 1
+        assert result.points[-1].frame_num == 60
+        assert result.metadata.track_version.startswith("V1.4.0")
+
+    def test_v14_extracts_signals(self, v14_track_file):
+        result = parse_track_file(v14_track_file)
+        assert result.points[1].fps == 20.0
+        assert result.points[1].yaw == pytest.approx(3.70 - 0.5, abs=0.01)
+        assert result.points[25].objects_detected == 27
+        # Frames deep in the active region carry a high activity (F) value
+        assert result.points[45].activity_score > 0.5
+
+    def test_v14_timestamps_increase(self, v14_track_file):
+        result = parse_track_file(v14_track_file)
+        times = [p.timestamp_sec for p in result.points]
+        assert times[0] >= 0.0
+        assert times[-1] > times[0]
+        assert all(times[i] >= times[i - 1] for i in range(1, len(times)))
 
 class TestParseTrackFile:
     """Tests for parse_track_file()."""

@@ -11,6 +11,11 @@ the domain models defined in src.telemetry.models.
   FIN:x{N} V{N}
   Zoom:CPSz{N}
 
+SDK V1.4.0 adds (frame header shares the UTC line):
+  UTC... [fps{N}] Frame{N} Yaw{N} Pit{N} Detect{N} AFilter:P{N}
+  Crowd{N} mot{N} Dq{N}(v,dx)... F{0-4} virx{N} realx{N}
+  YawMC x{N} v{N} Smooth(...)dir{N} gear{N}
+
 Usage:
     python -m src.telemetry.parser <track_file>
     
@@ -54,7 +59,24 @@ RE_CROWDX = re.compile(r'Crowdx([-\d.]+)')
 RE_FIN = re.compile(r'FIN:x([-\d.]+)\s+V([-\d.]+)')
 RE_CENTER = re.compile(r'(?:centerResX|autoCenterX)([-\d.]+)')
 RE_ZOOM = re.compile(r'Zoom:CPSz(\d+)')
-RE_TIMESTAMP = re.compile(r'UTC(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+)')
+RE_TIMESTAMP = re.compile(r'UTC((?:\d{4}-\d{2}-\d{2}\s+)?\d{2}:\d{2}:\d{2}\.\d+)')
+# Full datetime without the UTC prefix — the camera logs the game date once,
+# e.g. '2026-07-19 14:53:18.240'. Used as the date for V1.4 time-only UTC lines.
+RE_FULL_DATETIME = re.compile(r'(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2}\.\d+')
+
+# ── FALCON SDK V1.4.0 ──────────────────────────────────────────────────────
+# Frame header shares the UTC line:  UTC... [fps{N}] Frame{N} Yaw{N} Pit{N}
+# [Detect{N}] AFilter:P{N}
+RE_FRAME_V14 = re.compile(
+    r'(?:fps([\d.]+)\s+)?Frame(\d+)\s+Yaw([-\d.]+)\s+Pit([-\d.]+)'
+    r'(?:\s+Detect(\d+))?\s+AFilter:P(\d+)'
+)
+# Detail line: Crowd{N} mot{N} Dq{N}(v,dx)... F{0-4} virx{N} realx{N}
+RE_CROWD_V14 = re.compile(r'Crowd(\d+)\s+mot(\d+)')
+RE_FAST_V14 = re.compile(r'\bF(\d+)')
+RE_VIRX = re.compile(r'virx([-\d.]+)\s+realx([-\d.]+)')
+# YawMC x{N} v{N} Smooth(...)dir{N} gear{N}
+RE_YAWMC = re.compile(r'YawMC\s+x([-\d.]+)\s+v([-\d.]+)')
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -111,7 +133,13 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
     last_utc = ""
     current: Optional[TrackPoint] = None
     
+    game_date = "1970-01-01"
     for line_num, line in enumerate(lines, start=1):
+        # Capture the game date (logged once in the header, e.g. '2026-07-19')
+        fd = RE_FULL_DATETIME.search(line)
+        if fd and game_date == "1970-01-01":
+            game_date = fd.group(1)
+
         # UTC timestamp line — marks start of a new frame block
         utc_match = RE_TIMESTAMP.search(line)
         if utc_match:
@@ -121,15 +149,19 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
             utc_str = utc_match.group(1)
             current = TrackPoint(frame_num=0, timestamp_sec=0.0, raw_utc=utc_str)
             
-            # Parse UTC → seconds offset
+            # Parse UTC → seconds offset (SDK V1.4 logs time-only: '14:53:18.328')
             try:
-                dt = datetime.strptime(utc_str, "%Y-%m-%d %H:%M:%S.%f")
+                if "-" in utc_str:
+                    dt = datetime.strptime(utc_str, "%Y-%m-%d %H:%M:%S.%f")
+                else:
+                    dt = datetime.strptime(f"{game_date} {utc_str}", "%Y-%m-%d %H:%M:%S.%f")
                 if t0_sec is None:
                     t0_sec = dt.timestamp()
                 current.timestamp_sec = dt.timestamp() - t0_sec
             except ValueError:
                 pass
-            continue
+            # NOTE: no continue — in SDK V1.4.0 the frame header (Frame{N}
+            # Yaw{N} Pit{N} ...) shares this same line and is parsed below.
         
         if current is None:
             continue
@@ -146,6 +178,23 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
             except (ValueError, IndexError) as e:
                 log_parse_error(log, current.frame_num, "frame_header",
                                 "Frame{N} SZ{N} Yaw{N} Pit{N} fps{N}", line.strip(), line)
+            continue
+
+        # Frame line (SDK V1.4.0):  [fps{N}] Frame{N} Yaw{N} Pit{N} [Detect{N}] AFilter:P{N}
+        fm14 = RE_FRAME_V14.search(line)
+        if fm14:
+            try:
+                current.frame_num = int(fm14.group(2))
+                current.yaw = float(fm14.group(3))
+                current.pitch = float(fm14.group(4))
+                if fm14.group(1):
+                    current.fps = float(fm14.group(1))
+                if fm14.group(5):
+                    current.objects_detected = int(fm14.group(5))
+                current.raw_fields["afilter"] = fm14.group(6)
+            except (ValueError, IndexError) as e:
+                log_parse_error(log, current.frame_num, "frame_header",
+                                "Frame{N} Yaw{N} Pit{N} Detect{N} AFilter:P{N}", line.strip(), line)
             continue
         
         # [AF]FilterP{N} mot{N}
@@ -218,6 +267,41 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
             except ValueError:
                 pass
             continue
+
+        # ── FALCON SDK V1.4.0 detail line ──
+        # Crowd{N} mot{N} Dq{N}(v,dx)... F{0-4} virx{N} realx{N}
+        cm14 = RE_CROWD_V14.search(line)
+        if cm14:
+            try:
+                current.motion_objects = int(cm14.group(2))
+            except ValueError:
+                pass
+            fa = RE_FAST_V14.search(line)
+            if fa:
+                try:
+                    # F{N} is the camera's activity counter (0-4 idle, up to
+                    # ~27 during play); normalize 0-30 → 0-1.
+                    current.activity_score = min(int(fa.group(1)) / 30.0, 1.0)
+                except ValueError:
+                    pass
+            vx = RE_VIRX.search(line)
+            if vx:
+                try:
+                    current.crowd_x = float(vx.group(1))
+                except ValueError:
+                    pass
+                current.raw_fields["real_x"] = vx.group(2)
+            continue
+
+        # YawMC x{N} v{N} Smooth(...)dir{N} gear{N}
+        ym = RE_YAWMC.search(line)
+        if ym:
+            try:
+                current.center_x = float(ym.group(1))
+                current.center_speed = float(ym.group(2))
+            except ValueError:
+                pass
+            continue
     
     # Don't forget the last frame
     if current is not None:
@@ -229,8 +313,10 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
     # ── Compute metadata ──
     metadata.total_frames = len(points)
     metadata.total_duration_sec = points[-1].timestamp_sec
-    if points[0].fps > 0:
-        metadata.video_fps = points[0].fps
+    for p in points:
+        if p.fps > 0:
+            metadata.video_fps = p.fps
+            break
     
     result = ParsedTrack(points=points, metadata=metadata)
     
