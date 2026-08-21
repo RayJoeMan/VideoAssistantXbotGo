@@ -66,7 +66,11 @@ def make_ico() -> None:
 
 
 def make_icns() -> None:
-    from PIL import Image
+    try:
+        from PIL import Image
+    except ImportError:
+        print("Pillow not installed — skipping icon.icns (pip install pillow)")
+        return
 
     ICONSET.mkdir(exist_ok=True)
     image = Image.open(PNG).convert("RGBA")

@@ -14,6 +14,7 @@ PyQt6>=6.6.0         # Desktop UI framework
 
 # ── Build (packaging into an executable) ────────────────────────────────
 pyinstaller>=6.0.0   # Packages the app into a standalone executable
+pillow>=10.0.0       # Generates icon.ico / icon.iconset for packaging
 
 # ── Optional (Phase 5: Cloud integration) ───────────────────────────────
 # firebase-admin>=6.0.0 # Catch Tracker cloud upload
