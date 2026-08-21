@@ -9,10 +9,13 @@
 # Usage:
 #   ./scripts/push.sh            # push current branch
 #   ./scripts/push.sh main       # push a specific branch
+#   ./scripts/push.sh main --tags  # also push tags (e.g. release tags)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 BRANCH="${1:-$(git branch --show-current)}"
+PUSH_TAGS=""
+if [ "${2:-}" = "--tags" ]; then PUSH_TAGS="--tags"; fi
 REMOTE="origin"
 
 push_with() {
@@ -20,10 +23,10 @@ push_with() {
     if [ -n "$key" ]; then
         echo "[push] trying key: $key"
         GIT_SSH_COMMAND="ssh -i $key -o IdentitiesOnly=yes" \
-            git push -u "$REMOTE" "$BRANCH"
+            git push -u "$REMOTE" "$BRANCH" $PUSH_TAGS
     else
         echo "[push] trying default ssh-agent keys"
-        git push -u "$REMOTE" "$BRANCH"
+        git push -u "$REMOTE" "$BRANCH" $PUSH_TAGS
     fi
 }
 
