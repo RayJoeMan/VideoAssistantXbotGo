@@ -102,3 +102,4 @@ or publish the branch from VS Code's Source Control view.
 | `Ctrl+E` | Export highlight reel |
 | `Space` | Play/pause (when video loaded) |
 | `Ctrl+Q` | Quit |
+# VideoAssistantXbotGo
