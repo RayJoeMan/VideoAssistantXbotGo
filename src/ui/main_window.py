@@ -739,38 +739,72 @@ class MainWindow(QMainWindow):
     
     # ── Slots / Actions ──────────────────────────────────────────────
     
-    def _on_open_video(self):
-        """Open a video file."""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open Video File", "",
-            "Video Files (*.mp4 *.mov *.avi *.mkv *.webm);;All Files (*)",
-        )
-        if path:
-            self.video_path = path
-            self.video_label.setText(
-                f"✅ Video loaded: {Path(path).name}\n\n"
-                f"Open a track file to continue."
+    def _find_companion_track(self, video_path: str) -> Optional[str]:
+        """Auto-locate a FALCON .track file that pairs with a video.
+
+        FALCON cameras store telemetry next to the video as '<name>.track' —
+        either in the same folder or (typically) in a hidden '.data' subfolder.
+        Candidate locations, in order:
+          1. Same folder:     <video>.track
+          2. .data subfolder: <dir>/.data/<stem>.track
+          3. Parent folder (when the video itself lives in .data)
+          4. A single .track in <dir>/.data (unique fallback)
+        """
+        video = Path(video_path)
+        candidates = [
+            video.with_suffix(".track"),
+            video.parent / ".data" / f"{video.stem}.track",
+            video.parent.parent / f"{video.stem}.track",
+        ]
+        data_dir = video.parent / ".data"
+        if data_dir.is_dir():
+            tracks = sorted(data_dir.glob("*.track"))
+            if len(tracks) == 1:
+                candidates.append(tracks[0])
+        for candidate in candidates:
+            if candidate.is_file():
+                return str(candidate)
+        return None
+
+    def _load_video(self, path: str):
+        """Set the loaded video and auto-load its companion track if present."""
+        self.video_path = path
+        video_name = Path(path).name
+        msg = f"✅ Video loaded: {video_name}"
+
+        # Auto-locate and parse the paired FALCON track when none is loaded
+        track = self._find_companion_track(path)
+        if track and self.track_path is None:
+            self.track_path = track
+            msg += f"\n\n📊 Auto-loaded track: {Path(track).name}"
+            self.statusbar.showMessage(
+                f"Loaded video + track: {video_name} / {Path(track).name}"
             )
-            self.video_label.setStyleSheet(
-                "background-color: #1a2a1a; color: #8f8; "
-                "border: 2px solid #2a4a2a; border-radius: 8px; "
-                "padding: 40px; font-size: 14px;"
+            self.worker = ParserWorker(track)
+            self.worker.progress.connect(
+                lambda m: self.statusbar.showMessage(m)
             )
-            self.statusbar.showMessage(f"Loaded video: {Path(path).name}")
-            self._update_state()
-    
-    def _on_open_track(self):
-        """Open a FALCON .track file and parse it."""
-        path, _ = QFileDialog.getOpenFileName(
-            self, "Open Track File", "",
-            "Track Files (*.track);;All Files (*)",
+            self.worker.finished.connect(self._on_track_loaded)
+            self.worker.error.connect(self._on_error)
+            self.worker.start()
+        else:
+            if track is None:
+                msg += "\n\nNo .track found — open one manually to continue."
+            self.statusbar.showMessage(f"Loaded video: {video_name}")
+
+        self.video_label.setText(msg)
+        self.video_label.setStyleSheet(
+            "background-color: #1a2a1a; color: #8f8; "
+            "border: 2px solid #2a4a2a; border-radius: 8px; "
+            "padding: 40px; font-size: 14px;"
         )
-        if not path:
-            return
-        
+        self._update_state()
+
+    def _load_track(self, path: str):
+        """Set the loaded track and parse it in the background."""
         self.track_path = path
         self.statusbar.showMessage("Parsing track file...")
-        
+
         self.worker = ParserWorker(path)
         self.worker.progress.connect(
             lambda msg: self.statusbar.showMessage(msg)
@@ -778,6 +812,24 @@ class MainWindow(QMainWindow):
         self.worker.finished.connect(self._on_track_loaded)
         self.worker.error.connect(self._on_error)
         self.worker.start()
+
+    def _on_open_video(self):
+        """Open a video file (dialog) and auto-load its track."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Video File", "",
+            "Video Files (*.mp4 *.mov *.avi *.mkv *.webm);;All Files (*)",
+        )
+        if path:
+            self._load_video(path)
+
+    def _on_open_track(self):
+        """Open a FALCON .track file and parse it."""
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Open Track File", "",
+            "Track Files (*.track);;All Files (*)",
+        )
+        if path:
+            self._load_track(path)
     
     def _on_track_loaded(self, track):
         """Handle successfully parsed track."""
@@ -968,11 +1020,9 @@ class MainWindow(QMainWindow):
         for url in event.mimeData().urls():
             path = url.toLocalFile()
             if path.endswith(".track"):
-                self.track_path = path
-                self._on_open_track()
+                self._load_track(path)
             elif path.endswith((".mp4", ".mov", ".avi", ".mkv", ".webm")):
-                self.video_path = path
-                self._on_open_video()
+                self._load_video(path)
 
 
 # ══════════════════════════════════════════════════════════════════════════
