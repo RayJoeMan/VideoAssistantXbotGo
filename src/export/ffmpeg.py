@@ -52,6 +52,14 @@ def _frozen_root() -> Path:
     return Path(__file__).resolve().parent
 
 
+def _tool_names(name: str) -> List[str]:
+    """Candidate file names for a tool, honoring Windows .exe convention."""
+    names = [name]
+    if sys.platform.startswith("win"):
+        names.extend((name + ".exe", name + ".cmd", name + ".bat"))
+    return names
+
+
 def resolve_tool(name: str) -> str:
     """Locate an external tool (ffmpeg/ffprobe) for the running app.
 
@@ -60,17 +68,18 @@ def resolve_tool(name: str) -> str:
       2. The executable's own directory (onedir layout)
       3. PATH
 
-    Returns the plain tool name as a last resort so subprocess errors stay
-    descriptive instead of raising here.
+    Windows builds look for ffmpeg.exe/ffprobe.exe in addition to the bare
+    name. Returns the plain tool name as a last resort so subprocess errors
+    stay descriptive instead of raising here.
     """
     if getattr(sys, "frozen", False):
-        candidates = [
-            _frozen_root() / name,
-            Path(sys.executable).parent / name,
-        ]
-        for candidate in candidates:
-            if candidate.exists() and os.access(candidate, os.X_OK):
-                return str(candidate)
+        roots = [_frozen_root(), Path(sys.executable).parent]
+        for root in roots:
+            for candidate in (root / n for n in _tool_names(name)):
+                if candidate.exists():
+                    # Windows has no execute bit; existence is enough there
+                    if sys.platform.startswith("win") or os.access(candidate, os.X_OK):
+                        return str(candidate)
     found = shutil.which(name)
     return found or name
 

@@ -15,16 +15,40 @@ The produced executable is a windowed GUI app (no console window).
 
 import os
 import shutil
+import sys
 
 block_cipher = None
 
 APP_NAME = "Lacrosse Highlight Assistant"
 ENTRY = ["src/ui/main_window.py"]
 
-ONE_FILE = os.environ.get("LVA_ONE_FILE", "0") == "1"
+# macOS always builds a Finder double-clickable .app (onedir + BUNDLE);
+# PyInstaller cannot produce a onefile .app, so ignore LVA_ONE_FILE there.
+if sys.platform == "darwin":
+    ONE_FILE = False
+else:
+    ONE_FILE = os.environ.get("LVA_ONE_FILE", "0") == "1"
 BUNDLE_FFMPEG = os.environ.get("LVA_BUNDLE_FFMPEG", "0") == "1"
 
+ASSETS = os.path.join(SPECPATH, "assets")
+
+# Platform-specific icon (Windows .ico, macOS .icns); generated from
+# assets/icon.svg by scripts/make_icons.py.
+ICON = None
+if sys.platform == "win32":
+    _ico = os.path.join(ASSETS, "icon.ico")
+    if os.path.exists(_ico):
+        ICON = _ico
+elif sys.platform == "darwin":
+    _icns = os.path.join(ASSETS, "icon.icns")
+    if os.path.exists(_icns):
+        ICON = _icns
+
 datas = [("README.md", ".")]
+# Bundle the PNG so the app can set its window/taskbar icon at runtime.
+_png = os.path.join(ASSETS, "icon.png")
+if os.path.exists(_png):
+    datas.append((_png, "assets"))
 binaries = []
 hiddenimports = []
 
@@ -77,6 +101,7 @@ if ONE_FILE:
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
+        icon=ICON,
     )
 else:
     exe = EXE(
@@ -95,6 +120,7 @@ else:
         target_arch=None,
         codesign_identity=None,
         entitlements_file=None,
+        icon=ICON,
     )
     coll = COLLECT(
         exe,
@@ -105,4 +131,20 @@ else:
         upx=True,
         upx_exclude=[],
         name=APP_NAME,
+    )
+
+# macOS: wrap the onedir build in a proper .app bundle (double-clickable in
+# Finder). PyInstaller only processes BUNDLE on macOS.
+if sys.platform == "darwin":
+    app = BUNDLE(
+        coll,
+        name=APP_NAME + ".app",
+        icon=ICON,
+        bundle_identifier="com.catchtracker.lacrosse-highlight-assistant",
+        info_plist={
+            "CFBundleShortVersionString": "0.1.0",
+            "CFBundleVersion": "0.1.0",
+            "CFBundleDisplayName": APP_NAME,
+            "NSHighResolutionCapable": True,
+        },
     )

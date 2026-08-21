@@ -49,6 +49,20 @@ FFmpeg — unless you use `package-bundle-ffmpeg`, the target machine needs
 `ffmpeg`/`ffprobe` on PATH (or a copy placed next to the executable, which the
 app finds automatically).
 
+### Platform notes
+
+- **Linux / macOS**: `make package` (or `python scripts/build.py`).
+- **Windows**: `\build.ps1` (or `python scripts/build.py`).
+- **macOS**: builds always produce a Finder double-clickable `.app` bundle at
+  `dist/Lacrosse Highlight Assistant.app`. For distribution, ad-hoc codesign
+  with `codesign --force --deep --sign -` and — for wide distribution —
+  notarize with an Apple Developer account.
+- **Windows**: the built `.exe` may trigger a SmartScreen "Unknown publisher"
+  warning until the app is code-signed.
+- **Icons**: run `python scripts/make_icons.py` (or `make icons`) to generate
+  `icon.ico` / `icon.icns` from `assets/icon.svg`. `icon.icns` is created
+  automatically when building on macOS.
+
 ## CLI tools
 
 | Command | Purpose |

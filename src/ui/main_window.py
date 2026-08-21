@@ -979,21 +979,53 @@ class MainWindow(QMainWindow):
 # Entry Point
 # ══════════════════════════════════════════════════════════════════════════
 
+def _load_app_icon() -> Optional[QIcon]:
+    """Load the bundled app icon (assets/icon.png) if present.
+
+    Works both from a source checkout and from a frozen PyInstaller build
+    (where assets/ is bundled via the spec).
+    """
+    candidates: List[Path] = []
+    if getattr(sys, "frozen", False):
+        bundle_root = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+        candidates.append(bundle_root / "assets" / "icon.png")
+        candidates.append(Path(sys.executable).parent / "assets" / "icon.png")
+    candidates.append(Path(__file__).resolve().parent.parent.parent / "assets" / "icon.png")
+    for candidate in candidates:
+        if candidate.exists():
+            icon = QIcon(str(candidate))
+            if not icon.isNull():
+                return icon
+    return None
+
+
 def main():
     """Launch the Lacrosse Highlight Assistant desktop application."""
     configure_logging(level="INFO")
     
-    # Auto-detect headless: use offscreen platform directly
+    # Auto-detect headless: use offscreen platform directly.
+    # Only Linux relies on DISPLAY/WAYLAND_DISPLAY env vars — on Windows and
+    # macOS the native window server is always present, so never force
+    # offscreen there unless --headless is explicitly requested.
     argv = sys.argv[:1]  # Keep program name only
-    if not os.environ.get("DISPLAY") and not os.environ.get("WAYLAND_DISPLAY"):
+    is_linux = sys.platform.startswith("linux")
+    headless = "--headless" in sys.argv
+    if headless or (
+        is_linux
+        and not os.environ.get("DISPLAY")
+        and not os.environ.get("WAYLAND_DISPLAY")
+    ):
         log.info("no display detected — using offscreen mode")
-        argv += ["-platform", "offscreen"]
-    elif "--headless" in sys.argv:
         argv += ["-platform", "offscreen"]
     
     app = QApplication(argv)
     app.setApplicationName(APP_TITLE)
     app.setOrganizationName("Lacrosse Video Assistant")
+    
+    # Apply the app icon (window + taskbar/dock) where available
+    app_icon = _load_app_icon()
+    if app_icon is not None:
+        app.setWindowIcon(app_icon)
     
     # Apply dark theme
     app.setStyle("Fusion")

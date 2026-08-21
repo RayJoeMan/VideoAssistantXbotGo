@@ -30,16 +30,22 @@ clean:
 	rm -rf dist/ build/ *.egg-info/ 2>/dev/null || true
 
 # ── Packaging (Phase 4+) ────────────────────────────────────────────────
-# Builds the desktop app as a distributable executable via PyInstaller.
-# Output lands in dist/".
+# Builds the desktop app as a distributable executable via scripts/build.py
+# (a cross-platform wrapper around PyInstaller). Output lands in dist/.
 package:                ## Build distributable app (onedir — faster startup)
-	.venv/bin/pyinstaller --noconfirm lacrosse_highlight_assistant.spec
+	.venv/bin/python scripts/build.py
 
 package-onefile:        ## Build single-file executable
-	LVA_ONE_FILE=1 .venv/bin/pyinstaller --noconfirm lacrosse_highlight_assistant.spec
+	.venv/bin/python scripts/build.py --onefile
 
 package-bundle-ffmpeg:  ## Bundle ffmpeg/ffprobe into the app for offline export
-	LVA_BUNDLE_FFMPEG=1 .venv/bin/pyinstaller --noconfirm lacrosse_highlight_assistant.spec
+	.venv/bin/python scripts/build.py --bundle-ffmpeg
+
+smoke:                  ## Build, then verify the executable launches
+	.venv/bin/python scripts/build.py --smoke
+
+icons:                  ## (Re)generate icon assets from assets/icon.svg
+	.venv/bin/python scripts/make_icons.py
 
 # ── Setup ────────────────────────────────────────────────────────────────
 setup:
