@@ -1,0 +1,58 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lacrosse-highlight-assistant"
+version = "0.1.0"
+description = "Telemetry-driven video editing assistant for lacrosse. Ingest FALCON camera tracks, auto-detect key plays, and export highlight reels."
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Catch Tracker Team"}
+]
+keywords = ["lacrosse", "video", "highlight", "telemetry", "sports", "FALCON"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Video",
+    "Topic :: Scientific/Engineering :: Information Analysis",
+]
+
+dependencies = [
+    "numpy>=1.26.0",
+    "python-dateutil>=2.8.2",
+    "PyQt6>=6.6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-qt>=4.5.0",
+]
+
+[project.scripts]
+lva = "ui.main_window:main"
+lva-parse = "telemetry.parser:main"
+lva-detect = "analysis.detection:main"
+lva-export = "export.ffmpeg:main"
+
+[project.urls]
+Homepage = "https://github.com/catch-tracker/lacrosse-video-assistant"
+Repository = "https://github.com/catch-tracker/lacrosse-video-assistant"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-v --tb=short"

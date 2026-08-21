@@ -1,0 +1,17 @@
+# Lacrosse Highlight Assistant — Python dependencies
+# Install: pip install -r requirements.txt
+
+# ── Core ─────────────────────────────────────────────────────────────────
+numpy>=1.26.0          # Signal processing, array operations
+python-dateutil>=2.8.2 # UTC timestamp parsing
+
+# ── Testing ─────────────────────────────────────────────────────────────
+pytest>=8.0.0          # Unit test framework
+pytest-cov>=4.1.0      # Coverage reporting
+
+# ── Optional (Phase 4: Desktop UI) ──────────────────────────────────────
+PyQt6>=6.6.0         # Desktop UI framework
+# pyinstaller>=6.0.0   # Packaging for distribution
+
+# ── Optional (Phase 5: Cloud integration) ───────────────────────────────
+# firebase-admin>=6.0.0 # Catch Tracker cloud upload
