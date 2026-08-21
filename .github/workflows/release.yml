@@ -82,6 +82,54 @@ jobs:
           { echo "### pytest diagnostics (exit $code)"; echo '```'; tail -120 /tmp/pytest.log; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           exit $code
 
+      # ── Failure diagnostics (ubuntu abort is intermittent & runner-specific;
+      #    logs need admin rights, so surface them as an artifact + commit
+      #    comment that anyone with repo access can read) ─────────────────
+      - name: Upload pytest log on failure (diagnostic)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-log-${{ runner.os }}
+          path: /tmp/pytest.log
+          if-no-files-found: ignore
+
+      - name: Post failure diagnostics to commit
+        if: failure() && runner.os == 'Linux'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set +e
+          BODY="CI test step failed on ubuntu (run ${{ github.run_id }})."
+          if [ -f /tmp/pytest.log ]; then
+            BODY="$BODY
+
+$(tail -80 /tmp/pytest.log)"
+          else
+            BODY="$BODY
+
+(no /tmp/pytest.log — failure happened before pytest produced output)"
+          fi
+          python - "$BODY" <<'PY'
+import json, os, sys, urllib.request
+body = sys.argv[1][:7000]
+repo = os.environ["GITHUB_REPOSITORY"]
+sha = os.environ["GITHUB_SHA"]
+token = os.environ["GH_TOKEN"]
+payload = json.dumps({"body": body}).encode()
+req = urllib.request.Request(
+    f"https://api.github.com/repos/{repo}/commits/{sha}/comments",
+    data=payload, method="POST",
+    headers={"Authorization": f"Bearer {token}",
+             "Accept": "application/vnd.github+json"},
+)
+try:
+    urllib.request.urlopen(req)
+    print("diagnostics comment posted")
+except Exception as e:
+    print("comment failed (non-fatal):", e)
+PY
+
       - name: Generate icons
         run: python scripts/make_icons.py
 

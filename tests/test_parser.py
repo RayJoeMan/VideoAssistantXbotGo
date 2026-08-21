@@ -244,6 +244,42 @@ class TestParseTrackFileV14:
         assert times[-1] > times[0]
         assert all(times[i] >= times[i - 1] for i in range(1, len(times)))
 
+    def test_v14_ffilter_header_variant(self, tmp_path):
+        """Some SDK V1.3.0 builds log 'FFilter:P{N}' instead of 'AFilter:P{N}'."""
+        content = build_v14_sample(num_frames=30).replace(
+            "AFilter:P", "FFilter:P"
+        )
+        track_file = tmp_path / "ffilter_v14.track"
+        track_file.write_text(content)
+        result = parse_track_file(track_file)
+        assert len(result.points) == 30
+        # Frame numbers must parse (previously stayed 0 for every frame)
+        assert result.points[0].frame_num == 1
+        assert result.points[-1].frame_num == 30
+        # objects_detected comes from Detect{N} on the shared UTC line
+        assert result.points[0].objects_detected == 25
+        assert result.points[25].objects_detected == 27
+
+    def test_v14_fps_sentinel_not_poisoning_metadata(self, tmp_path):
+        """Frame-1 'fps2147483647' sentinel must not leak into video_fps."""
+        # Build the real-camera shape: frame 1 carries fps2147483647, later
+        # frames carry fps0 (SDK V1.3.0-0622 style), so no sane fps is logged.
+        parts = build_v14_sample(num_frames=40).split("\n")
+        fixed = []
+        for line in parts:
+            if line.startswith("UTC") and "Frame1" in line:
+                line = line.replace("fps20 ", "").replace("UTC", "UTC", 1)
+                # inject the sentinel right after the timestamp
+                line = line.replace("Frame1", "fps2147483647 Frame1", 1)
+            elif line.startswith("UTC"):
+                line = line.replace("fps20 ", "fps0 ")
+            fixed.append(line)
+        track_file = tmp_path / "fps_sentinel.track"
+        track_file.write_text("\n".join(fixed))
+        result = parse_track_file(track_file)
+        assert result.metadata.video_fps != 2147483647.0
+        assert 0 < result.metadata.video_fps <= 240
+
 class TestParseTrackFile:
     """Tests for parse_track_file()."""
 

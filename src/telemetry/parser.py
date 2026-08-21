@@ -66,10 +66,12 @@ RE_FULL_DATETIME = re.compile(r'(\d{4}-\d{2}-\d{2})\s+\d{2}:\d{2}:\d{2}\.\d+')
 
 # ── FALCON SDK V1.4.0 ──────────────────────────────────────────────────────
 # Frame header shares the UTC line:  UTC... [fps{N}] Frame{N} Yaw{N} Pit{N}
-# [Detect{N}] AFilter:P{N}
+# [Detect{N}] [AF]Filter:P{N}  — note some cameras (SDK V1.3.0 builds) log
+# 'FFilter:P{N}' instead of 'AFilter:P{N}', and frame 1 may carry a bogus
+# 'fps2147483647' sentinel (INT_MAX from the firmware's -1 default).
 RE_FRAME_V14 = re.compile(
     r'(?:fps([\d.]+)\s+)?Frame(\d+)\s+Yaw([-\d.]+)\s+Pit([-\d.]+)'
-    r'(?:\s+Detect(\d+))?\s+AFilter:P(\d+)'
+    r'(?:\s+Detect(\d+))?\s+[AF]Filter:P(\d+)'
 )
 # Detail line: Crowd{N} mot{N} Dq{N}(v,dx)... F{0-4} virx{N} realx{N}
 RE_CROWD_V14 = re.compile(r'Crowd(\d+)\s+mot(\d+)')
@@ -80,6 +82,22 @@ RE_DEQUE_V14 = re.compile(
 RE_VIRX = re.compile(r'virx([-\d.]+)\s+realx([-\d.]+)')
 # YawMC x{N} v{N} Smooth(...)dir{N} gear{N}
 RE_YAWMC = re.compile(r'YawMC\s+x([-\d.]+)\s+v([-\d.]+)')
+
+
+# ── fps sanity ─────────────────────────────────────────────────────────────
+def _normalize_fps(value: str | float | None) -> float:
+    """Clamp a FALCON fps value to a sane range.
+
+    Some camera builds log a 2147483647 (INT_MAX) sentinel on frame 1 — the
+    firmware's integer-overflowed '-1' default. Treat anything outside the
+    plausible camera range (1-240 fps) as "unknown" (0.0) so it can't poison
+    metadata.video_fps.
+    """
+    try:
+        v = float(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0.0
+    return v if 1.0 <= v <= 240.0 else 0.0
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -177,13 +195,13 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
                 current.zoom_level = int(fm.group(2))
                 current.yaw = float(fm.group(3))
                 current.pitch = float(fm.group(4))
-                current.fps = float(fm.group(5))
+                current.fps = _normalize_fps(fm.group(5))
             except (ValueError, IndexError) as e:
                 log_parse_error(log, current.frame_num, "frame_header",
                                 "Frame{N} SZ{N} Yaw{N} Pit{N} fps{N}", line.strip(), line)
             continue
 
-        # Frame line (SDK V1.4.0):  [fps{N}] Frame{N} Yaw{N} Pit{N} [Detect{N}] AFilter:P{N}
+        # Frame line (SDK V1.4.0):  [fps{N}] Frame{N} Yaw{N} Pit{N} [Detect{N}] [AF]Filter:P{N}
         fm14 = RE_FRAME_V14.search(line)
         if fm14:
             try:
@@ -191,13 +209,13 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
                 current.yaw = float(fm14.group(3))
                 current.pitch = float(fm14.group(4))
                 if fm14.group(1):
-                    current.fps = float(fm14.group(1))
+                    current.fps = _normalize_fps(fm14.group(1))
                 if fm14.group(5):
                     current.objects_detected = int(fm14.group(5))
                 current.raw_fields["afilter"] = fm14.group(6)
             except (ValueError, IndexError) as e:
                 log_parse_error(log, current.frame_num, "frame_header",
-                                "Frame{N} Yaw{N} Pit{N} Detect{N} AFilter:P{N}", line.strip(), line)
+                                "Frame{N} Yaw{N} Pit{N} Detect{N} [AF]Filter:P{N}", line.strip(), line)
             continue
         
         # [AF]FilterP{N} mot{N}
@@ -333,6 +351,10 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
         if p.fps > 0:
             metadata.video_fps = p.fps
             break
+    if metadata.video_fps <= 0 and points[-1].timestamp_sec > 0:
+        # Some camera builds don't log a sane fps (sentinel or zeros).
+        # Estimate from the frame count so callers still get a useful value.
+        metadata.video_fps = round(len(points) / points[-1].timestamp_sec)
     
     result = ParsedTrack(points=points, metadata=metadata)
     
