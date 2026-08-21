@@ -286,6 +286,14 @@ class MainWindow(QMainWindow):
         export_action.triggered.connect(self._on_export)
         file_menu.addAction(export_action)
         
+        export_event_list_action = QAction("Export Event &List (JSON)...", self)
+        export_event_list_action.triggered.connect(self._on_export_event_list)
+        file_menu.addAction(export_event_list_action)
+        
+        export_review_action = QAction("Export Review &Clips (All)...", self)
+        export_review_action.triggered.connect(self._on_export_review_clips)
+        file_menu.addAction(export_review_action)
+        
         file_menu.addSeparator()
         
         quit_action = QAction("&Quit", self)
@@ -980,6 +988,78 @@ class MainWindow(QMainWindow):
         self.worker.error.connect(self._on_error)
         self.worker.start()
     
+    def _on_export_event_list(self):
+        """Write all detected events to a JSON file for review/labeling."""
+        if not self.events:
+            QMessageBox.warning(self, "No Events", "Detect events first.")
+            return
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Event List", "events.json", "JSON (*.json)"
+        )
+        if not path:
+            return
+        import json as _json
+        payload = []
+        for i, e in enumerate(self.events):
+            payload.append({
+                "id": i,
+                "predicted_type": e.event_type.value,
+                "start_sec": round(e.start_time_sec, 2),
+                "end_sec": round(e.end_time_sec, 2),
+                "peak_sec": round(e.peak_time_sec, 2),
+                "confidence": round(e.confidence, 3),
+                "frame_range": list(e.frame_range),
+                "description": e.description,
+            })
+        with open(path, "w") as f:
+            _json.dump(payload, f, indent=2)
+        self.statusbar.showMessage(
+            f"Wrote {len(payload)} events to {Path(path).name}"
+        )
+        QMessageBox.information(
+            self, "Event List Exported",
+            f"Wrote {len(payload)} events to:\n{path}\n\n"
+            "Review it in any editor. Add 'correct'/'actual_type' fields to "
+            "build ground truth, or generate a label sheet with:\n"
+            "  python scripts/event_review.py labels <track> labels.jsonl",
+        )
+
+    def _on_export_review_clips(self):
+        """Export ALL detected events as individual clips (review package)."""
+        if not self.video_path:
+            QMessageBox.warning(self, "No Video", "Open a video file first.")
+            return
+        if not self.events:
+            QMessageBox.warning(self, "No Events", "Detect events first.")
+            return
+        out_dir = QFileDialog.getExistingDirectory(
+            self, "Select Output Directory for Review Clips"
+        )
+        if not out_dir:
+            return
+        answer = QMessageBox.question(
+            self, "Export Review Clips",
+            f"Export all {len(self.events)} detected events as clips "
+            "(with metadata) for review?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self.progress_bar.setVisible(True)
+        self.progress_bar.setRange(0, 0)
+        self.progress_label.setText(f"Exporting {len(self.events)} review clips...")
+        self.export_individual_btn.setEnabled(False)
+        self.export_reel_btn.setEnabled(False)
+        self.worker = IndividualExportWorker(
+            self.video_path, list(self.events), out_dir,
+            self.export_config, add_titles=False,
+            save_metadata=True,
+            batch_size=self.batch_size_spin.value(),
+        )
+        self.worker.progress.connect(lambda msg: self.progress_label.setText(msg))
+        self.worker.finished.connect(self._on_export_finished)
+        self.worker.error.connect(self._on_error)
+        self.worker.start()
+
     def _on_refresh(self):
         """Refresh the UI state."""
         self._update_state()

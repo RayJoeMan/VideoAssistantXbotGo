@@ -84,6 +84,33 @@ git push -u origin feat/executable-packaging
 
 or publish the branch from VS Code's Source Control view.
 
+## Reviewing & improving event detection (ground-truth loop)
+
+FALCON tracks carry no event labels, so the detector is tuned heuristically.
+To turn it into measured performance, label one game and recalibrate:
+
+```bash
+# 1. See what's detected across games
+python scripts/event_review.py analyze --folder /media/joe/Vault/falcon
+
+# 2. Export EVERY detected event as clips to watch
+python scripts/event_review.py export GAME.mp4 GAME.track review_out/
+
+# 3. Generate a label sheet pre-filled with predictions
+python scripts/event_review.py labels GAME.track labels.jsonl
+
+# 4. Edit labels.jsonl: set "correct": true/false (and "actual_type" when
+#    wrong; add rows with "predicted_type": "MISSED" for missed plays),
+#    then measure precision/recall:
+python scripts/event_review.py evaluate GAME.track labels.jsonl
+```
+
+In the app, **File → Export Event List (JSON)** dumps every event with
+timestamps for a quick review pass, and **File → Export Review Clips (All)**
+exports all detected events as clips + metadata. Use the precision/recall
+numbers (not guesses) to recalibrate `DetectionConfig` in
+`src/analysis/detection.py`.
+
 ## CLI tools
 
 | Command | Purpose |
@@ -102,4 +129,3 @@ or publish the branch from VS Code's Source Control view.
 | `Ctrl+E` | Export highlight reel |
 | `Space` | Play/pause (when video loaded) |
 | `Ctrl+Q` | Quit |
-# VideoAssistantXbotGo
