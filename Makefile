@@ -30,11 +30,16 @@ clean:
 	rm -rf dist/ build/ *.egg-info/ 2>/dev/null || true
 
 # ── Packaging (Phase 4+) ────────────────────────────────────────────────
-package:
-	pyinstaller --name="Lacrosse Highlight Assistant" \
-		--windowed \
-		--add-data "README.md:." \
-		src/ui/main_window.py
+# Builds the desktop app as a distributable executable via PyInstaller.
+# Output lands in dist/".
+package:                ## Build distributable app (onedir — faster startup)
+	.venv/bin/pyinstaller --noconfirm lacrosse_highlight_assistant.spec
+
+package-onefile:        ## Build single-file executable
+	LVA_ONE_FILE=1 .venv/bin/pyinstaller --noconfirm lacrosse_highlight_assistant.spec
+
+package-bundle-ffmpeg:  ## Bundle ffmpeg/ffprobe into the app for offline export
+	LVA_BUNDLE_FFMPEG=1 .venv/bin/pyinstaller --noconfirm lacrosse_highlight_assistant.spec
 
 # ── Setup ────────────────────────────────────────────────────────────────
 setup:

@@ -38,6 +38,9 @@ dev = [
     "pytest-cov>=4.1.0",
     "pytest-qt>=4.5.0",
 ]
+build = [
+    "pyinstaller>=6.0.0",
+]
 
 [project.scripts]
 lva = "ui.main_window:main"

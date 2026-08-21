@@ -25,7 +25,9 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -39,15 +41,50 @@ ffmpeg_log = get_ffmpeg_logger()
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Runtime tool resolution (PyInstaller-aware)
+# ══════════════════════════════════════════════════════════════════════════
+
+def _frozen_root() -> Path:
+    """Directory holding bundled resources when running as a frozen executable."""
+    if getattr(sys, "frozen", False):
+        # onefile: sys._MEIPASS is the extraction dir; onedir: next to the exe
+        return Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    return Path(__file__).resolve().parent
+
+
+def resolve_tool(name: str) -> str:
+    """Locate an external tool (ffmpeg/ffprobe) for the running app.
+
+    Search order:
+      1. A bundled copy inside the frozen app (LVA_BUNDLE_FFMPEG=1 build)
+      2. The executable's own directory (onedir layout)
+      3. PATH
+
+    Returns the plain tool name as a last resort so subprocess errors stay
+    descriptive instead of raising here.
+    """
+    if getattr(sys, "frozen", False):
+        candidates = [
+            _frozen_root() / name,
+            Path(sys.executable).parent / name,
+        ]
+        for candidate in candidates:
+            if candidate.exists() and os.access(candidate, os.X_OK):
+                return str(candidate)
+    found = shutil.which(name)
+    return found or name
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Configuration
 # ══════════════════════════════════════════════════════════════════════════
 
 @dataclass
 class ExportConfig:
     """Configuration for video export operations."""
-    # Paths
-    ffmpeg_path: str = "ffmpeg"
-    ffprobe_path: str = "ffprobe"
+    # Paths (auto-resolved: bundled copy -> executable dir -> PATH)
+    ffmpeg_path: str = field(default_factory=lambda: resolve_tool("ffmpeg"))
+    ffprobe_path: str = field(default_factory=lambda: resolve_tool("ffprobe"))
     
     # Clip extraction
     pre_roll_sec: float = 3.0       # Seconds before event start

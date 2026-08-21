@@ -11,7 +11,9 @@ pytest-cov>=4.1.0      # Coverage reporting
 
 # ── Optional (Phase 4: Desktop UI) ──────────────────────────────────────
 PyQt6>=6.6.0         # Desktop UI framework
-# pyinstaller>=6.0.0   # Packaging for distribution
+
+# ── Build (packaging into an executable) ────────────────────────────────
+pyinstaller>=6.0.0   # Packages the app into a standalone executable
 
 # ── Optional (Phase 5: Cloud integration) ───────────────────────────────
 # firebase-admin>=6.0.0 # Catch Tracker cloud upload
