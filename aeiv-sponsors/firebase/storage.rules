@@ -1,0 +1,18 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // Sponsor logos live under the tenant boundary.
+    // Public images are readable by anyone; writes are handled server-side
+    // (uploads are deferred to a later phase and will be validated then).
+    match /tenants/{tenantId}/sponsor-logos/{sponsorId}/{fileName} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Everything else is denied.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

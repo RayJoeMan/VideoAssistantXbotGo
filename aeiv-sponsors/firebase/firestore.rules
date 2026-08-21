@@ -1,0 +1,75 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Helpers ----
+    function signedIn() {
+      return request.auth != null;
+    }
+    function isSelf(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+    function memberRoles(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId)/members/$(request.auth.uid)).data.roles;
+    }
+    function hasAnyRole(tenantId, roles) {
+      return signedIn() && memberRoles(tenantId).hasAny(roles);
+    }
+    function isAdmin(tenantId) {
+      return hasAnyRole(tenantId, ['org.owner', 'org.admin']);
+    }
+    function moduleEnabled(tenantId) {
+      return get(/databases/$(database)/documents/tenants/$(tenantId)/moduleConfig/module).data.moduleEnabled == true;
+    }
+
+    // ---- Tenant module config ----
+    // Publicly readable only while the module is enabled; all writes are
+    // server-only (callable functions use the admin SDK, which bypasses rules).
+    match /tenants/{tenantId}/moduleConfig/module {
+      allow read: if resource.data.moduleEnabled == true;
+      allow write: if false;
+    }
+
+    // ---- Public sponsor documents ----
+    // Readable by anyone while the module is enabled. Writes are server-only.
+    match /tenants/{tenantId}/sponsorPublic/{sponsorId} {
+      allow read: if moduleEnabled(tenantId);
+      allow write: if false;
+    }
+
+    // ---- Admin sponsor documents (contact/contract data) ----
+    // Readable only by tenant admins; writes are server-only. Never merged
+    // with the public document.
+    match /tenants/{tenantId}/sponsorAdmin/{sponsorId} {
+      allow read: if isAdmin(tenantId);
+      allow write: if false;
+    }
+
+    // ---- Inquiries ----
+    // Server-only: submitted through callable functions (rate-limited),
+    // read through admin functions. No direct client access.
+    match /tenants/{tenantId}/inquiries/{inquiryId} {
+      allow read, write: if false;
+    }
+
+    // ---- Memberships ----
+    // Users read their own membership; admins read all. Writes are managed by
+    // the platform, not by this module.
+    match /tenants/{tenantId}/members/{uid} {
+      allow read: if isSelf(uid) || isAdmin(tenantId);
+      allow write: if false;
+    }
+
+    // ---- Audit logs ----
+    // Append-only: admins may read, nobody may write/delete directly.
+    match /tenants/{tenantId}/auditLogs/{entryId} {
+      allow read: if isAdmin(tenantId);
+      allow write: if false;
+    }
+
+    // ---- Everything else: deny by default ----
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

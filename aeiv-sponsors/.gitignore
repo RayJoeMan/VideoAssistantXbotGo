@@ -1,0 +1,33 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+functions/lib/
+coverage/
+*.tsbuildinfo
+
+# Firebase
+.firebase/
+.firebase-debug.log
+firebase-debug.log
+emulator-data/
+functions/.runtime/
+
+# Env / secrets — never commit real credentials
+.env
+.env.*
+!.env.example
+
+# Local files
+*.local
+.DS_Store
+
+# Test artifacts
+playwright-report/
+test-results/
+blob-report/
+
+# Editor
+.idea/
+*.swp
