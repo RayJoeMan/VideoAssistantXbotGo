@@ -105,10 +105,28 @@ python scripts/event_review.py labels GAME.track labels.jsonl
 python scripts/event_review.py evaluate GAME.track labels.jsonl
 ```
 
-In the app, **File → Export Event List (JSON)** dumps every event with
-timestamps for a quick review pass, and **File → Export Review Clips (All)**
-exports all detected events as clips + metadata. Use the precision/recall
-numbers (not guesses) to recalibrate `DetectionConfig` in
+In the app, the fastest way is the built-in **review mode**:
+
+1. Open the game video (its `.track` auto-loads) and run **Analyze → Detect Events**.
+2. **File → Review Events (Interactive)** (or `Ctrl+R`).
+3. Watch each event clip play back, then click **✓ Correct** or **✗ Wrong**,
+   pick what it *actually* was from the "Actually a:" dropdown (e.g. the
+   detector said `turnover` but it was a `save`), add optional notes, and it
+   auto-advances to the next clip. Keyboard: `Space` play/pause, `←`/`→`
+   prev/next, `C` correct, `W` wrong, `S` skip.
+4. Labels are saved to a JSONL file as you go (pick the file when the review
+   window opens — reopen the same file to resume later).
+
+Then score the session in the terminal:
+
+```bash
+python scripts/event_review.py evaluate GAME.track labels.jsonl
+```
+
+For a headless/CLI pass: **File → Export Event List (JSON)** dumps every
+event with timestamps, and **File → Export Review Clips (All)** exports all
+detected events as clips + metadata for an external player. Use the
+precision/recall numbers (not guesses) to recalibrate `DetectionConfig` in
 `src/analysis/detection.py`.
 
 ## CLI tools

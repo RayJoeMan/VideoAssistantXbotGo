@@ -294,6 +294,15 @@ class MainWindow(QMainWindow):
         export_review_action.triggered.connect(self._on_export_review_clips)
         file_menu.addAction(export_review_action)
         
+        review_window_action = QAction("&Review Events (Interactive)...", self)
+        review_window_action.setShortcut(QKeySequence("Ctrl+R"))
+        review_window_action.setToolTip(
+            "Watch each event clip and label it correct/wrong (and the actual "
+            "type) to build ground truth for the classifier."
+        )
+        review_window_action.triggered.connect(self._on_review_events)
+        file_menu.addAction(review_window_action)
+        
         file_menu.addSeparator()
         
         quit_action = QAction("&Quit", self)
@@ -988,6 +997,26 @@ class MainWindow(QMainWindow):
         self.worker.error.connect(self._on_error)
         self.worker.start()
     
+    def _on_review_events(self):
+        """Open the interactive review window to label detected events.
+
+        Watch each event's clip and mark it correct/wrong (optionally fixing
+        the actual type). Labels stream to a JSONL file that
+        ``scripts/event_review.py evaluate`` can score.
+        """
+        if not self.video_path:
+            QMessageBox.warning(self, "No Video", "Open a video file first.")
+            return
+        if not self.events:
+            QMessageBox.warning(
+                self, "No Events",
+                "Detect events first (Analyze → Detect Events)."
+            )
+            return
+        from ui.review_window import ReviewWindow
+        window = ReviewWindow(self.video_path, self.events, parent=self)
+        window.exec()
+
     def _on_export_event_list(self):
         """Write all detected events to a JSON file for review/labeling."""
         if not self.events:
