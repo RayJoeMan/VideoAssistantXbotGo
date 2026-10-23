@@ -68,10 +68,12 @@ class TestDetectionConfigDefaults:
         from export.ffmpeg import ExportConfig
         dcfg = DetectionConfig()
         ecfg = ExportConfig()
-        assert dcfg.shot_min_speed == 40.0
-        assert dcfg.shot_speed_spike == 25.0
+        # Recalibrated 2026-10-23 for the object-speed signal (see
+        # analysis/detection.py calibration notes)
+        assert dcfg.shot_min_speed == 28.0
+        assert dcfg.shot_speed_spike == 12.0
         assert dcfg.shot_min_activity == 0.4
-        assert dcfg.save_min_speed == 25.0
+        assert dcfg.save_min_speed == 30.0
         assert dcfg.min_event_spacing_sec == 8.0
         assert ecfg.pre_roll_sec == 3.0  # pre_roll is on ExportConfig
 
