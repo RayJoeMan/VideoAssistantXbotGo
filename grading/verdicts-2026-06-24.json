@@ -1,0 +1,308 @@
+{
+ "game": "2026-06-24",
+ "track_file": "VID_20260624_184336_01_01.track",
+ "detections": [
+  {
+   "type": "goal",
+   "track_peak": 1990.8,
+   "verdict": "indeterminate",
+   "note": "regroup after far-end play; goal not visible at this distance"
+  },
+  {
+   "type": "goal",
+   "track_peak": 2849.8,
+   "verdict": "indeterminate",
+   "note": "center-left convergence, then dispersal; goal unverifiable from stills"
+  },
+  {
+   "type": "goal",
+   "track_peak": 3091.6,
+   "verdict": "indeterminate",
+   "note": "right-goal play, players walking back after; plausible, unverifiable"
+  },
+  {
+   "type": "goal",
+   "track_peak": 3881.2,
+   "verdict": "indeterminate",
+   "note": "regroup pattern near center; unverifiable"
+  },
+  {
+   "type": "goal",
+   "track_peak": 3893.7,
+   "verdict": "contradicted",
+   "note": "peaks 12.5s after det003 at the center circle: this is the post-goal draw, not a second goal"
+  },
+  {
+   "type": "goal",
+   "track_peak": 3930.2,
+   "verdict": "indeterminate",
+   "note": "open-play sprint toward the right; goal moment not shown"
+  },
+  {
+   "type": "shot",
+   "track_peak": 40.4,
+   "verdict": "indeterminate",
+   "note": "far-goal cluster 41s in; could be the first attack"
+  },
+  {
+   "type": "shot",
+   "track_peak": 325.6,
+   "verdict": "indeterminate",
+   "note": "distant far-end cluster"
+  },
+  {
+   "type": "shot",
+   "track_peak": 890.2,
+   "verdict": "contradicted",
+   "note": "players ringed around the center circle: a draw setup labeled as a shot"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1263.5,
+   "verdict": "indeterminate",
+   "note": "active running play at center"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1460.1,
+   "verdict": "consistent",
+   "note": "attack developing toward the right goal"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1730.9,
+   "verdict": "consistent",
+   "note": "cluster at the far right goal"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1876.8,
+   "verdict": "consistent",
+   "note": "play at the far right goal"
+  },
+  {
+   "type": "shot",
+   "track_peak": 2168.3,
+   "verdict": "indeterminate",
+   "note": "midfield regrouping; possibly post-goal walk-back"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3010.7,
+   "verdict": "contradicted",
+   "note": "center-circle formation: a draw setup labeled as a shot (same pattern as det008)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3474.7,
+   "verdict": "indeterminate",
+   "note": "distant spread play"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3731.5,
+   "verdict": "indeterminate",
+   "note": "left-side developing play"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3919.4,
+   "verdict": "indeterminate",
+   "note": "midfield convergence"
+  },
+  {
+   "type": "save",
+   "track_peak": 152.4,
+   "verdict": "consistent",
+   "note": "group around the far goal (weak)"
+  },
+  {
+   "type": "save",
+   "track_peak": 313.6,
+   "verdict": "consistent",
+   "note": "goal-mouth cluster at the far goals (weak)"
+  },
+  {
+   "type": "save",
+   "track_peak": 821.7,
+   "verdict": "contradicted",
+   "note": "two static team lines at the far side: huddle/lineup, no goal action (huddle class)"
+  },
+  {
+   "type": "save",
+   "track_peak": 1221.3,
+   "verdict": "indeterminate",
+   "note": "spread open play"
+  },
+  {
+   "type": "save",
+   "track_peak": 1372.0,
+   "verdict": "indeterminate",
+   "note": "small center-left cluster"
+  },
+  {
+   "type": "save",
+   "track_peak": 1862.3,
+   "verdict": "consistent",
+   "note": "play at the far right goal (weak)"
+  },
+  {
+   "type": "save",
+   "track_peak": 2232.3,
+   "verdict": "consistent",
+   "note": "goal-mouth cluster at the far goals (weak)"
+  },
+  {
+   "type": "save",
+   "track_peak": 2314.4,
+   "verdict": "indeterminate",
+   "note": "open play around the center with referee"
+  },
+  {
+   "type": "save",
+   "track_peak": 2714.3,
+   "verdict": "indeterminate",
+   "note": "figures at both far goals; indeterminate"
+  },
+  {
+   "type": "save",
+   "track_peak": 3040.2,
+   "verdict": "contradicted",
+   "note": "close-up sideline stoppage: referee signaling, players at the boundary - penalty administration, not a save"
+  },
+  {
+   "type": "save",
+   "track_peak": 3406.2,
+   "verdict": "indeterminate",
+   "note": "distant spread play"
+  },
+  {
+   "type": "face_off",
+   "track_peak": 232.5,
+   "verdict": "indeterminate",
+   "note": "far-end groups; draw not clearly shown"
+  },
+  {
+   "type": "face_off",
+   "track_peak": 1217.5,
+   "verdict": "consistent",
+   "note": "formation grouped at the center circle"
+  },
+  {
+   "type": "face_off",
+   "track_peak": 2302.5,
+   "verdict": "contradicted",
+   "note": "near-empty frame: camera looking at an empty patch of field, no draw"
+  },
+  {
+   "type": "face_off",
+   "track_peak": 3460.0,
+   "verdict": "consistent",
+   "note": "center-circle cluster (weak)"
+  },
+  {
+   "type": "transition",
+   "track_peak": 13.9,
+   "verdict": "contradicted",
+   "note": "pre-game team lineups at both ends, 15s in (pre-game guard inactive: first detected draw at 232.5s, past the 180s deadline)"
+  },
+  {
+   "type": "transition",
+   "track_peak": 1037.4,
+   "verdict": "consistent",
+   "note": "players streaming across midfield"
+  },
+  {
+   "type": "transition",
+   "track_peak": 1750.8,
+   "verdict": "consistent",
+   "note": "running play moving right (weak)"
+  },
+  {
+   "type": "transition",
+   "track_peak": 2216.7,
+   "verdict": "consistent",
+   "note": "midfield running play"
+  },
+  {
+   "type": "transition",
+   "track_peak": 3105.4,
+   "verdict": "indeterminate",
+   "note": "spread play with a walking group far left"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 2116.9,
+   "verdict": "indeterminate",
+   "note": "open play; turnovers cannot be judged from stills"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 3148.2,
+   "verdict": "indeterminate",
+   "note": "loose group near the sideline; stoppage look, but turnovers are unjudgeable from stills"
+  }
+ ],
+ "miss_windows": [
+  {
+   "track_peak": 1414.9,
+   "verdict": "no_event",
+   "note": "fast break with referee sprinting; no goal attack"
+  },
+  {
+   "track_peak": 1153.3,
+   "verdict": "real_miss",
+   "note": "attack converging on the far left goal"
+  },
+  {
+   "track_peak": 998.1,
+   "verdict": "no_event",
+   "note": "center-circle midfield action"
+  },
+  {
+   "track_peak": 1320.5,
+   "verdict": "no_event",
+   "note": "transition sprint, referee chasing"
+  },
+  {
+   "track_peak": 2674.9,
+   "verdict": "real_miss",
+   "note": "cluster at the far left goal"
+  },
+  {
+   "track_peak": 2926.8,
+   "verdict": "no_event",
+   "note": "midfield cluster and runners"
+  },
+  {
+   "track_peak": 3128.4,
+   "verdict": "no_event",
+   "note": "distant spread play"
+  },
+  {
+   "track_peak": 2959.2,
+   "verdict": "no_event",
+   "note": "midfield play developing, no goal convergence"
+  },
+  {
+   "track_peak": 1119.8,
+   "verdict": "real_miss",
+   "note": "attackers converging on the right goal"
+  },
+  {
+   "track_peak": 99.9,
+   "verdict": "no_event",
+   "note": "sideline restart in the opening minutes (scorebug briefly showed a leftover 6-1 from a prior game: operator artifact)"
+  },
+  {
+   "track_peak": 1962.3,
+   "verdict": "no_event",
+   "note": "midfield dispersal around the center circle"
+  },
+  {
+   "track_peak": 3632.2,
+   "verdict": "no_event",
+   "note": "spread open play"
+  }
+ ]
+}

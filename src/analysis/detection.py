@@ -111,6 +111,17 @@ class DetectionConfig:
     goal_min_follow_activity: float = 0.40
     goal_center_band: Tuple[float, float] = (400.0, 600.0)
 
+    # Pre/post-game guards (calibration game 2, 2026-10-23): the only
+    # pre-draw events in two full games were warmup "turnovers", and
+    # the post-game handshake line produced a conf-0.81 "shot" in both
+    # games (players jog to the line = a genuine-looking speed spike,
+    # but with a cold buildup inside a long low-activity tail).
+    pregame_faceoff_deadline_sec: float = 180.0  # Guard applies only if a draw is found this early
+    postgame_bin_sec: float = 5.0          # Tail measured in bins of this size
+    postgame_bin_activity: float = 0.40    # Every tail bin's mean activity stays below this
+    postgame_min_tail_sec: float = 30.0    # Tail must be at least this long
+    postgame_buildup_max_speed: float = 55.0  # Spike needs a cold [peak-20, peak-6] window
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # Derived Signal Computation
@@ -220,6 +231,8 @@ def detect_events(
     events = _resolve_goals(events, signals, cfg)
     events = _filter_saves(events, signals, cfg)
     events = _deduplicate_events(events, cfg)
+    events = _suppress_pregame(events, cfg)
+    events = _suppress_postgame_tail(events, signals, cfg)
     events = _classify_intensity(events, signals)
     events = _sort_by_time(events)
     
@@ -638,6 +651,16 @@ def _window_mean(signals: dict, key: str, t0: float, t1: float) -> float:
     return float(np.mean(signals[key][lo:hi]))
 
 
+def _window_max(signals: dict, key: str, t0: float, t1: float) -> float:
+    """Max of a signal over [t0, t1]; 0.0 when the window is empty."""
+    time = signals["time"]
+    lo = int(np.searchsorted(time, t0))
+    hi = int(np.searchsorted(time, t1))
+    if hi <= lo:
+        return 0.0
+    return float(np.max(signals[key][lo:hi]))
+
+
 def _window_median(signals: dict, key: str, t0: float, t1: float) -> float:
     """Median of a signal over [t0, t1]; 500.0 (midfield) when empty."""
     time = signals["time"]
@@ -789,6 +812,88 @@ _TYPE_PRIORITY = {
     EventType.FACE_OFF: 4,
     EventType.TURNOVER: 5,
 }
+
+
+def _suppress_pregame(
+    events: List[Event],
+    cfg: DetectionConfig,
+) -> List[Event]:
+    """Drop non-face-off events that peak before the game's first draw.
+
+    Play cannot precede the opening draw, so anything earlier is
+    warmup/lineup motion. In two calibrated games the ONLY pre-draw
+    events were junk "turnovers" ~19-22s in. The guard stays off
+    unless a draw is actually detected early (deadline in config):
+    if the draw detector missed the opening, we change nothing.
+    """
+    faceoffs = [e for e in events if e.event_type == EventType.FACE_OFF]
+    if not faceoffs:
+        return events
+    first_draw = min(e.peak_time_sec for e in faceoffs)
+    if first_draw > cfg.pregame_faceoff_deadline_sec:
+        return events
+    return [
+        e for e in events
+        if e.event_type == EventType.FACE_OFF
+        or e.peak_time_sec >= first_draw - 2.0
+    ]
+
+
+def _suppress_postgame_tail(
+    events: List[Event],
+    signals: dict,
+    cfg: DetectionConfig,
+) -> List[Event]:
+    """Drop isolated spikes inside a long, quiet post-game tail.
+
+    The handshake line beat the shot detector in both calibrated
+    games: players jog to midfield (a real speed spike) and line up.
+    What betrays it is the surroundings — the spike sits in a suffix
+    of the recording where every 5s bin's mean activity stays low
+    (the game is over), and its own buildup window is cold. A hot
+    finish is safe twice over: its bins are too active to form the
+    tail at all, and a real last-second shot has hot buildup.
+
+    The tail must also be preceded by at least one active bin (there
+    was a game before it) and span at least postgame_min_tail_sec.
+    Face-offs are exempt: a late draw is harmless metadata.
+    """
+    time = signals["time"]
+    activity = signals["activity"]
+    if len(time) < 2:
+        return events
+    t_end = float(time[-1])
+    bin_sec = cfg.postgame_bin_sec
+
+    # Walk bins backward from the end while they stay quiet.
+    tail_start = t_end
+    saw_active_bin = False
+    cursor = t_end
+    while cursor > float(time[0]) + bin_sec:
+        lo = cursor - bin_sec
+        mean_act = _window_mean(signals, "activity", lo, cursor)
+        if mean_act >= cfg.postgame_bin_activity:
+            saw_active_bin = True
+            break
+        tail_start = lo
+        cursor = lo
+    if not saw_active_bin:
+        return events
+    if t_end - tail_start < cfg.postgame_min_tail_sec:
+        return events
+
+    kept = []
+    for e in events:
+        if e.event_type == EventType.FACE_OFF or e.peak_time_sec < tail_start:
+            kept.append(e)
+            continue
+        buildup = _window_max(
+            signals, "center_speed_smooth",
+            e.peak_time_sec - 20.0, e.peak_time_sec - 6.0,
+        )
+        if buildup >= cfg.postgame_buildup_max_speed:
+            kept.append(e)  # Hot buildup: live play, not a lineup jog.
+    return kept
 
 
 def _deduplicate_events(events: List[Event], cfg: DetectionConfig) -> List[Event]:

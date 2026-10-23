@@ -451,3 +451,72 @@ class TestEndToEnd:
         for e in events:
             assert 0.0 <= e.confidence <= 1.0, \
                 f"Confidence {e.confidence} out of bounds for {e.event_type.value}"
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Pre/Post-Game Guards
+# ══════════════════════════════════════════════════════════════════════════
+
+from analysis.detection import _suppress_pregame, _suppress_postgame_tail
+
+
+def _ev(etype, peak):
+    return Event(etype, peak - 1.0, peak + 1.0, peak, confidence=0.8)
+
+
+class TestPregameGuard:
+    def test_drops_events_before_first_draw(self):
+        events = [_ev(EventType.TURNOVER, 20.0), _ev(EventType.FACE_OFF, 90.0),
+                  _ev(EventType.SHOT, 300.0)]
+        kept = _suppress_pregame(events, DetectionConfig())
+        assert [e.event_type for e in kept] == [EventType.FACE_OFF, EventType.SHOT]
+
+    def test_noop_when_first_draw_is_late(self):
+        events = [_ev(EventType.TURNOVER, 20.0), _ev(EventType.FACE_OFF, 600.0)]
+        assert len(_suppress_pregame(events, DetectionConfig())) == 2
+
+    def test_noop_without_faceoffs(self):
+        events = [_ev(EventType.TURNOVER, 20.0), _ev(EventType.SHOT, 50.0)]
+        assert len(_suppress_pregame(events, DetectionConfig())) == 2
+
+
+def _tail_signals(duration=600.0, fps=10.0, active_until=540.0,
+                  spike_at=None, buildup_hot_until=None):
+    n = int(duration * fps)
+    time = np.arange(n) / fps
+    activity = np.where(time < active_until, 0.6, 0.2)
+    speed = np.full(n, 30.0)
+    speed[time < active_until] = 65.0
+    if spike_at is not None:
+        speed[(time >= spike_at) & (time < spike_at + 4)] = 71.0
+    if buildup_hot_until is not None:
+        speed[(time >= buildup_hot_until - 10) & (time < buildup_hot_until)] = 70.0
+    return {"time": time, "activity": activity, "center_speed_smooth": speed}
+
+
+class TestPostgameTailGuard:
+    def test_drops_handshake_spike_keeps_live_events(self):
+        sig = _tail_signals(spike_at=576.0)
+        events = [_ev(EventType.SHOT, 500.0), _ev(EventType.SHOT, 578.0),
+                  _ev(EventType.FACE_OFF, 590.0)]
+        kept = _suppress_postgame_tail(events, sig, DetectionConfig())
+        peaks = [e.peak_time_sec for e in kept]
+        assert 500.0 in peaks and 590.0 in peaks and 578.0 not in peaks
+
+    def test_keeps_spike_with_hot_buildup(self):
+        sig = _tail_signals(spike_at=576.0, buildup_hot_until=570.0)
+        events = [_ev(EventType.SHOT, 578.0)]
+        kept = _suppress_postgame_tail(events, sig, DetectionConfig())
+        assert len(kept) == 1
+
+    def test_noop_when_finish_is_hot(self):
+        sig = _tail_signals(active_until=600.0, spike_at=590.0)
+        events = [_ev(EventType.SHOT, 592.0)]
+        kept = _suppress_postgame_tail(events, sig, DetectionConfig())
+        assert len(kept) == 1
+
+    def test_noop_when_no_active_game_before_tail(self):
+        sig = _tail_signals(active_until=0.0, spike_at=576.0)
+        events = [_ev(EventType.SHOT, 578.0)]
+        kept = _suppress_postgame_tail(events, sig, DetectionConfig())
+        assert len(kept) == 1
