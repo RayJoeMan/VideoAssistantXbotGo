@@ -56,7 +56,9 @@ def read_vdata(video_path: Path | str) -> Optional[dict]:
     for cand in candidates:
         if cand.exists():
             try:
-                return json.loads(cand.read_text())
+                # Real FALCON .vdata files can be NUL-terminated; strip
+                # trailing NULs/whitespace before parsing.
+                return json.loads(cand.read_text().rstrip("\x00 \t\r\n"))
             except (ValueError, OSError) as exc:
                 log.warning(f"unreadable vdata {cand}: {exc}")
                 return None

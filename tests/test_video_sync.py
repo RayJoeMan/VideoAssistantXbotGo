@@ -68,3 +68,19 @@ def test_sync_for_missing_vdata_returns_none(tmp_path):
     video = tmp_path / "game.mp4"
     video.write_bytes(b"")
     assert sync_for(_track(), video) is None
+
+
+def test_vdata_with_trailing_nul_byte(tmp_path):
+    """Real FALCON .vdata files can be NUL-terminated (seen on the
+    2026-06-16 game); the parser must not choke on the trailing byte."""
+    video = tmp_path / "game.mp4"
+    video.write_bytes(b"")
+    data_dir = tmp_path / ".data"
+    data_dir.mkdir()
+    payload = json.dumps({
+        "file_name": "game.mp4",
+        "file_time": "2026-06-16 18:12:07",
+        "duration": 4180.5,
+    })
+    (data_dir / "game.vdata").write_bytes(payload.encode() + b"\x00")
+    assert video_start_time(video) == datetime(2026, 6, 16, 18, 12, 7)
