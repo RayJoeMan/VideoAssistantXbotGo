@@ -325,6 +325,32 @@ class TestFaceoffDetection:
             assert f.confidence > 0.3
             assert f.peak_time_sec > 0
 
+    def test_detects_faceoff_at_draw(self):
+        """Quiet center cluster that ramps into play should fire a face-off.
+
+        Regression test: the old per-frame detector required near-total
+        stillness in a 10-frame window and fired zero times in a full
+        real game. The windowed detector looks for seconds of quiet at
+        center followed by an activity ramp.
+        """
+        points = []
+        for i in range(1200):  # 40 seconds at 30 fps
+            t = i / 30.0
+            act = 0.05 if i < 300 else 0.6  # draw at ~10s, then play
+            points.append(TrackPoint(
+                frame_num=i + 1, timestamp_sec=t,
+                activity_score=act, center_x=500.0,
+                objects_detected=8, center_speed=30.0,
+                fps=30.0,
+            ))
+
+        track = _make_track(points)
+        events = detect_events(track)
+
+        faceoffs = [e for e in events if e.event_type == EventType.FACE_OFF]
+        assert len(faceoffs) >= 1
+        assert 5.0 <= faceoffs[0].peak_time_sec <= 20.0
+
 
 # ══════════════════════════════════════════════════════════════════════════
 # Post-processing Tests

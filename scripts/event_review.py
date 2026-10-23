@@ -37,6 +37,7 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from telemetry.parser import parse_track_file  # noqa: E402
+from telemetry.video_sync import sync_for  # noqa: E402
 from analysis.detection import detect_events  # noqa: E402
 from export.ffmpeg import ExportConfig, extract_clip_from_event  # noqa: E402
 
@@ -130,21 +131,40 @@ def cmd_export(args) -> int:
     outdir.mkdir(parents=True, exist_ok=True)
     cfg = ExportConfig()
 
+    # Event times are TRACK time; clip extraction needs VIDEO time.
+    # FALCON video and telemetry start at different instants and the
+    # video omits recording pauses, so map through the .vdata sync
+    # whenever one is available (see telemetry/video_sync.py).
+    sync = sync_for(track, video)
+    if sync is not None:
+        print(
+            f"video sync: head offset {sync.head_offset_sec:+.1f}s, "
+            f"{len(track.gaps)} recording gap(s) — clips use video time"
+        )
+    else:
+        print(
+            "WARNING: no .vdata sidecar found for the video — clips use "
+            "raw track times and may be offset from the play"
+        )
+
     manifest = []
     success = 0
     for i, e in enumerate(events):
         name = f"evt_{i:03d}_{e.event_type.value}.mp4"
+        clip_event = sync.map_event(e) if sync is not None else e
         try:
             clip = extract_clip_from_event(
-                video, e, outdir / name, config=cfg, add_title=args.titles
+                video, clip_event, outdir / name, config=cfg, add_title=args.titles
             )
         except Exception as exc:  # noqa: BLE001 - report and continue
             print(f"  skip {name}: {exc}")
             continue
         side = _event_dict(i, e)
         side["clip"] = clip.name
-        side["clip_start_sec"] = round(max(0.0, e.start_time_sec - cfg.pre_roll_sec), 2)
-        side["clip_end_sec"] = round(e.end_time_sec + cfg.post_roll_sec, 2)
+        side["timebase"] = "video" if sync is not None else "track-unsynced"
+        side["video_peak_sec"] = round(clip_event.peak_time_sec, 2)
+        side["clip_start_sec"] = round(max(0.0, clip_event.start_time_sec - cfg.pre_roll_sec), 2)
+        side["clip_end_sec"] = round(clip_event.end_time_sec + cfg.post_roll_sec, 2)
         (outdir / f"{clip.stem}.json").write_text(json.dumps(side, indent=2))
         manifest.append(side)
         success += 1

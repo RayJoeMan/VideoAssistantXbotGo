@@ -15,6 +15,21 @@ Event types detected:
 Architecture:
   ParsedTrack → compute derived signals → detect pattern → Event list
 
+Calibration notes (2026-10-23, from a screenshot-triaged sample of 51
+detections on a real game — see the calibration review pack):
+  - The parser now feeds object (Deque) speeds, not camera pan speed;
+    thresholds below assume that signal.
+  - A local-activity floor removes detections from dead periods
+    (stoppages, lulls, pre/post-game), which produced many false saves.
+  - Saves are only trusted when linked to a shot, or when standalone
+    evidence is strong (high activity + high incoming speed). The old
+    hard position gate is gone: the FALCON position signal sits at
+    midfield for many genuine goal-mouth plays, so it cannot gate.
+  - Goals require a celebration-level activity follow-through in an
+    attacking area, not merely the absence of a save.
+  - One label per play: events whose peaks fall inside one spacing
+    window collapse to the highest-priority type.
+
 Usage:
     from src.telemetry.parser import parse_track_file
     from src.analysis.detection import detect_events
@@ -51,33 +66,50 @@ log = get_logger(__name__)
 @dataclass
 class DetectionConfig:
     """Tunable parameters for event detection algorithms."""
-    # Shot detection
-    shot_min_speed: float = 40.0         # Minimum center speed for a shot
-    shot_speed_spike: float = 25.0       # Speed increase over baseline to trigger
+    # Shot detection (on the smoothed object-speed series; thresholds
+    # recalibrated 2026-10-23 — the camera-era values admitted almost
+    # no real shots once the parser fed object speeds)
+    shot_min_speed: float = 28.0         # Minimum smoothed speed for a shot
+    shot_speed_spike: float = 12.0       # Smoothed spike over baseline to trigger
     shot_min_activity: float = 0.4       # Minimum activity during shot
-    shot_lookahead_sec: float = 3.0      # Window after shot for goal confirmation
-    shot_goal_activity_spike: float = 0.7 # Activity threshold for goal celebration
-    
-    # Save detection
-    save_min_speed: float = 25.0        # Minimum incoming speed (0-100) for a save
+    shot_min_buildup: float = 0.15       # Mean activity in the ~1.5s before
+
+    # Save detection (also on smoothed speed)
+    save_min_speed: float = 30.0        # Minimum incoming smoothed speed
     save_speed_drop: float = 0.6         # Fraction speed must drop (60% reduction)
-    save_position_threshold: float = 0.15 # Position near goal line (0-1 normalized)
-    save_reversal_min_speed: float = 20.0 # Minimum speed after save for clear
-    
+    save_drop_floor: float = 18.0        # ...and fall to at most this (a real stop)
+    save_reversal_min_speed: float = 18.0 # Minimum speed after save for clear
+    # A save is trusted when a shot/goal sits within this window of it.
+    save_link_window_sec: float = 4.0
+    # Unlinked saves need strong standalone evidence (calibration: most
+    # unlinked low-activity "saves" were stoppages or midfield play).
+    save_standalone_min_activity: float = 0.35
+    save_standalone_min_speed: float = 45.0
+
     # Transition detection
     transition_midfield_zone: Tuple[float, float] = (400.0, 600.0)
     transition_min_speed: float = 40.0
     transition_min_duration_sec: float = 1.5
     transition_direction_change: float = 300.0  # Minimum position delta for direction change
-    
-    # Face-off detection
-    faceoff_center_zone: Tuple[float, float] = (450.0, 550.0)
-    faceoff_max_objects: int = 6          # Minimum objects near center
-    faceoff_activity_ramp: float = 0.3    # Activity must rise from below this
-    
+
+    # Face-off detection (windowed: quiet → clustered at center → ramp)
+    faceoff_center_zone: Tuple[float, float] = (420.0, 580.0)
+    faceoff_max_objects: int = 4          # Minimum avg objects near center
+    faceoff_activity_ramp: float = 0.15   # Pre-draw activity must be at/below this
+    faceoff_post_activity_min: float = 0.30  # Activity in the 5s after the draw
+    faceoff_min_spacing_sec: float = 30.0
+
     # General
-    min_event_spacing_sec: float = 8.0    # Minimum time between distinct events
-    goal_confirmation_window_sec: float = 8.0  # Window to confirm goal after shot
+    min_event_spacing_sec: float = 8.0    # Peaks closer than this are one play
+    goal_confirmation_window_sec: float = 4.0  # A save this close vetoes a goal
+    # Every detection needs live play around it: mean activity within
+    # ±3s of the peak must reach this (dead periods measured ~0.0-0.15,
+    # genuine events ~0.23+).
+    min_local_activity: float = 0.20
+    # Goal promotion: mean activity 5-15s after the shot (celebration /
+    # reset energy) and the play must sit outside the center band.
+    goal_min_follow_activity: float = 0.40
+    goal_center_band: Tuple[float, float] = (400.0, 600.0)
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -102,11 +134,23 @@ def _compute_derived_signals(points: List[TrackPoint]) -> dict:
     crowd_x = np.array([p.crowd_x for p in points])
     objects = np.array([p.objects_detected for p in points], dtype=float)
     
-    # Acceleration (derivative of speed)
+    # Smoothed speed (~0.4s moving average). Object speeds are jittery
+    # frame to frame; spike/drop tests run on this series so single-
+    # frame noise can't manufacture or erase an event.
+    smooth_window = min(7, n)
+    if smooth_window > 1:
+        center_speed_smooth = np.convolve(
+            center_speed, np.ones(smooth_window) / smooth_window, mode='same'
+        )
+    else:
+        center_speed_smooth = center_speed.copy()
+
+    # Acceleration (derivative of the SMOOTHED speed — raw object speed
+    # changes sign constantly and makes this test meaningless)
     dt = np.diff(time)
     dt = np.where(dt == 0, 1e-6, dt)  # Avoid division by zero
     speed_accel = np.zeros(n)
-    speed_accel[1:] = np.diff(center_speed) / dt
+    speed_accel[1:] = np.diff(center_speed_smooth) / dt
     
     # Direction sign: +1 = moving right (attacking), -1 = moving left
     # Based on center_x derivative
@@ -123,6 +167,7 @@ def _compute_derived_signals(points: List[TrackPoint]) -> dict:
         "activity": activity,
         "center_x": center_x,
         "center_speed": center_speed,
+        "center_speed_smooth": center_speed_smooth,
         "crowd_x": crowd_x,
         "objects": objects,
         "speed_accel": speed_accel,
@@ -167,8 +212,13 @@ def detect_events(
     events.extend(_detect_faceoffs(signals, points, cfg))
     events.extend(_detect_turnovers(signals, points, cfg))
     
-    # Post-processing
-    events = _resolve_goals(events, cfg)
+    # Post-processing (order matters: the floor first, while raw
+    # candidates are cheap to drop; goal promotion before save
+    # filtering, because a nearby save vetoes the goal; clustering
+    # last so each play keeps exactly one label)
+    events = _apply_activity_floor(events, signals, cfg)
+    events = _resolve_goals(events, signals, cfg)
+    events = _filter_saves(events, signals, cfg)
     events = _deduplicate_events(events, cfg)
     events = _classify_intensity(events, signals)
     events = _sort_by_time(events)
@@ -207,45 +257,54 @@ def _detect_shots(
     """
     events: List[Event] = []
     n = len(points)
-    
-    speed = signals["center_speed"]
+
+    speed = signals["center_speed_smooth"]
     accel = signals["speed_accel"]
     activity = signals["activity"]
     pos = signals["center_x"]
     time = signals["time"]
-    
+
     # Compute rolling baseline speed (30-frame window ≈ 1 second)
     window = min(30, n // 3)
     if window < 3:
         return events
-    
+
     baseline = np.convolve(speed, np.ones(window)/window, mode='same')
-    
+
     for i in range(window, n - window):
         # Speed spike above baseline
         speed_spike = speed[i] - baseline[i]
-        
+
         if speed_spike < cfg.shot_speed_spike:
             continue
         if speed[i] < cfg.shot_min_speed:
             continue
-        if activity[i] < cfg.shot_min_activity:
+        # Activity near the peak (object speed is jittery frame to
+        # frame, so judge the neighbourhood, not the single frame)
+        local_activity = float(np.max(activity[max(0, i - 5):i + 6]))
+        if local_activity < cfg.shot_min_activity:
             continue
-        
+
         # Acceleration should be positive (ball accelerating)
         if accel[i] < 0:
             continue
-        
+
         # Look for buildup: sustained moderate activity before the shot
         buildup_start = max(0, i - 30)  # ~1 second before
         buildup_activity = np.mean(activity[buildup_start:i])
-        if buildup_activity < 0.3:
+        if buildup_activity < cfg.shot_min_buildup:
             continue
         
         # Compute confidence
         confidence = _shot_confidence(
-            speed_spike, speed[i], activity[i], buildup_activity, cfg
+            speed_spike, speed[i], local_activity, buildup_activity, cfg
         )
+
+        # Position depth: the same speed spike at a goal line is far
+        # more likely a real shot than at midfield (calibration: several
+        # false "shots" were fast midfield transition plays).
+        depth = abs(pos[i] - 500.0) / 500.0
+        confidence = min(confidence * (0.8 + 0.4 * depth), 1.0)
         
         # Frame range: 1 second before to 2 seconds after
         start_idx = max(0, i - 30)
@@ -280,35 +339,48 @@ def _detect_saves(
     """
     events: List[Event] = []
     n = len(points)
-    
-    speed = signals["center_speed"]
+
+    # Smoothed speed: raw object speed oscillates constantly, and on the
+    # raw series a 60% "drop" happens somewhere in almost every second
+    # of play (the un-gated detector produced 1,200+ candidates a game).
+    speed = signals["center_speed_smooth"]
     accel = signals["speed_accel"]
     pos = signals["center_x"]
     time = signals["time"]
-    
+
+    last_peak = -1e9
     for i in range(5, n - 5):
+        # One candidate per play, not per frame
+        if time[i] - last_peak < 2.5:
+            continue
+
         # Need high incoming speed (fast play, not gentle ebb)
         if speed[i] < cfg.save_min_speed:
             continue
-        
+
         # Look ahead for speed drop
         lookahead = min(i + 20, n - 1)
         future_speed = speed[i + 1:lookahead]
-        
+
         if len(future_speed) < 3:
             continue
-        
+
         min_future = np.min(future_speed)
-        
-        # Speed must drop significantly
+
+        # Speed must drop significantly — in relative terms AND down to
+        # a genuine stop (a shot arriving then being stopped, not a
+        # carrier merely slowing from very fast to fast)
         if min_future > speed[i] * (1 - cfg.save_speed_drop):
             continue
-        
-        # Must be near a goal end (extreme position), not mid-field
-        near_goal = (pos[i] < cfg.save_position_threshold * 1000.0) or \
-                    (pos[i] > 1000.0 - cfg.save_position_threshold * 1000.0)
-        if not near_goal:
+        if min_future > cfg.save_drop_floor:
             continue
+        
+        # NOTE: no hard position gate. Calibration showed the FALCON
+        # position signal sits at midfield for many genuine goal-mouth
+        # saves (the tracking window is wide), so gating on it removed
+        # true saves while camera-era false ones sailed through. Save
+        # validation now happens in _filter_saves (shot linkage or
+        # strong standalone evidence); position only nudges confidence.
         
         # Look for reversal after the stop
         min_idx = i + 1 + np.argmin(future_speed)
@@ -318,8 +390,15 @@ def _detect_saves(
                 continue  # No clear — might be a goal instead
         
         confidence = 0.6 + 0.2 * (speed[i] / 100.0) + 0.2 * (1 - min_future / max(speed[i], 1e-6))
+
+        # Soft position evidence: play centered in a goal third is a
+        # little more believable than the same drop at midfield.
+        win_pos = pos[max(0, i - 15):min(n, i + 15)]
+        if len(win_pos) and (np.median(win_pos) <= 350.0 or np.median(win_pos) >= 650.0):
+            confidence += 0.05
         confidence = min(confidence, 1.0)
         
+        last_peak = float(time[i])
         events.append(Event(
             event_type=EventType.SAVE,
             start_time_sec=float(time[max(0, i - 15)]),
@@ -415,58 +494,69 @@ def _detect_faceoffs(
     points: List[TrackPoint],
     cfg: DetectionConfig,
 ) -> List[Event]:
-    """Detect face-offs from clustered positions at center with activity ramp.
-    
-    A face-off is characterized by:
-    1. Multiple objects near center X (players clustered)
-    2. Activity starts near zero and ramps up
-    3. Position stays near center briefly then disperses
+    """Detect face-offs: quiet play clustered at center, then a ramp.
+
+    A draw is a windowed pattern, not a frame pattern:
+    1. Activity is low for several seconds (teams lining up)
+    2. The action center sits at midfield with players clustered
+    3. Activity ramps sharply as the draw is contested
+
+    The previous per-frame version required near-total stillness in a
+    10-frame pre-window, which essentially never occurs in real FALCON
+    data — it fired zero times in a full calibrated game. This version
+    scans 5-second windows and was validated against the known draw
+    times (game start, second-half start) of that game.
     """
     events: List[Event] = []
-    n = len(points)
-    
-    objects = signals["objects"]
-    pos = signals["center_x"]
-    activity = signals["activity"]
     time = signals["time"]
-    
+    activity = signals["activity"]
+    pos = signals["center_x"]
+    objects = signals["objects"]
+    if len(time) < 40 or time[-1] - time[0] < 20.0:
+        return events
+
     center_low, center_high = cfg.faceoff_center_zone
-    
-    for i in range(10, n - 10):
-        # Objects clustered near center
-        if objects[i] < cfg.faceoff_max_objects:
-            continue
-        
-        in_center = center_low <= pos[i] <= center_high
-        if not in_center:
-            continue
-        
-        # Activity must be ramping up from low
-        pre_activity = float(np.mean(activity[max(0, i - 10):i]))
-        post_activity = float(np.mean(activity[i:min(n - 1, i + 10)]))
-        
-        if pre_activity > cfg.faceoff_activity_ramp:
-            continue
-        if post_activity < cfg.faceoff_activity_ramp * 2:
-            continue
-        
-        # Check objects disperse after (position variance increases)
-        post_positions = pos[i:min(n - 1, i + 30)]
-        dispersion = float(np.std(post_positions)) if len(post_positions) > 1 else 0
-        
-        if dispersion < 50:  # Players must spread out
-            continue
-        
-        events.append(Event(
-            event_type=EventType.FACE_OFF,
-            start_time_sec=float(time[max(0, i - 15)]),
-            end_time_sec=float(time[min(n - 1, i + 30)]),
-            peak_time_sec=float(time[i]),
-            confidence=min(0.5 + 0.3 * (objects[i] / 15.0) + 0.2 * (post_activity / 0.8), 0.95),
-            frame_range=(points[max(0, i - 15)].frame_num, points[min(n - 1, i + 30)].frame_num),
-            description=f"Face-off at {time[i]:.1f}s, {int(objects[i])} objects at center",
-        ))
-    
+
+    def _win(t0: float, t1: float) -> slice:
+        lo = int(np.searchsorted(time, t0))
+        hi = int(np.searchsorted(time, t1))
+        return slice(lo, max(hi, lo))
+
+    t = float(time[0]) + 10.0
+    last_kept = -1e9
+    while t < float(time[-1]) - 10.0:
+        pre = _win(t - 7.5, t - 2.5)
+        mid = _win(t - 2.5, t + 2.5)
+        post = _win(t + 2.5, t + 7.5)
+        if mid.stop - mid.start >= 5 and pre.stop - pre.start >= 5 \
+                and post.stop - post.start >= 5:
+            pre_act = float(np.mean(activity[pre]))
+            post_act = float(np.mean(activity[post]))
+            mid_pos = float(np.median(pos[mid]))
+            mid_obj = float(np.mean(objects[mid]))
+            if (
+                pre_act <= cfg.faceoff_activity_ramp
+                and post_act >= cfg.faceoff_post_activity_min
+                and post_act >= 2.5 * max(pre_act, 0.01)
+                and center_low <= mid_pos <= center_high
+                and mid_obj >= cfg.faceoff_max_objects
+                and t - last_kept >= cfg.faceoff_min_spacing_sec
+            ):
+                i = int(np.searchsorted(time, t))
+                i = min(max(i, 0), len(points) - 1)
+                j = min(int(np.searchsorted(time, t + 10.0)), len(points) - 1)
+                events.append(Event(
+                    event_type=EventType.FACE_OFF,
+                    start_time_sec=float(max(time[0], t - 5.0)),
+                    end_time_sec=float(time[j]),
+                    peak_time_sec=float(t),
+                    confidence=min(0.55 + 0.45 * (post_act / 0.7), 0.95),
+                    frame_range=(points[max(0, i - 15)].frame_num, points[j].frame_num),
+                    description=f"Face-off at {t:.1f}s, play restarts from center",
+                ))
+                last_kept = t
+        t += 2.5
+
     return events
 
 
@@ -538,59 +628,196 @@ def _detect_turnovers(
 # Post-processing
 # ══════════════════════════════════════════════════════════════════════════
 
-def _resolve_goals(events: List[Event], cfg: DetectionConfig) -> List[Event]:
-    """Promote shots to goals when followed by celebration activity spike."""
-    shots = [e for e in events if e.event_type == EventType.SHOT]
-    
-    for shot in shots:
-        # Look for activity spike after the shot
-        nearby = [
-            e for e in events
-            if e.event_type in (EventType.SAVE, EventType.TURNOVER)
-            and abs(e.peak_time_sec - shot.peak_time_sec) < cfg.goal_confirmation_window_sec
-        ]
-        
-        # If a save is detected right after, it's NOT a goal
-        if any(e.event_type == EventType.SAVE for e in nearby):
+def _window_mean(signals: dict, key: str, t0: float, t1: float) -> float:
+    """Mean of a signal over [t0, t1]; 0.0 when the window is empty."""
+    time = signals["time"]
+    lo = int(np.searchsorted(time, t0))
+    hi = int(np.searchsorted(time, t1))
+    if hi <= lo:
+        return 0.0
+    return float(np.mean(signals[key][lo:hi]))
+
+
+def _window_median(signals: dict, key: str, t0: float, t1: float) -> float:
+    """Median of a signal over [t0, t1]; 500.0 (midfield) when empty."""
+    time = signals["time"]
+    lo = int(np.searchsorted(time, t0))
+    hi = int(np.searchsorted(time, t1))
+    if hi <= lo:
+        return 500.0
+    return float(np.median(signals[key][lo:hi]))
+
+
+def _apply_activity_floor(
+    events: List[Event],
+    signals: dict,
+    cfg: DetectionConfig,
+) -> List[Event]:
+    """Drop detections from dead periods.
+
+    Mean activity within ±3s of the peak must reach the floor. In the
+    calibration sample every contradicted save/goal/turnover from a
+    stoppage, lull, or pre/post-game sat below it, and every genuine
+    event sat above it.
+    """
+    kept = []
+    for e in events:
+        # Face-offs are exempt: a draw is DEFINED by the quiet around
+        # it, so its ±3s mean is low by construction. The face-off
+        # detector already requires a strong post-draw ramp.
+        if e.event_type == EventType.FACE_OFF:
+            kept.append(e)
             continue
-        
-        # If no save and no turnover, upgrade confidence toward goal
-        if not nearby:
-            shot.confidence = min(shot.confidence * 1.2, 0.95)
-            shot.event_type = EventType.GOAL
-            shot.description = shot.description.replace("Shot attempt", "Goal")
+        local = _window_mean(
+            signals, "activity", e.peak_time_sec - 3.0, e.peak_time_sec + 3.0
+        )
+        if local >= cfg.min_local_activity:
+            kept.append(e)
+    return kept
+
+
+def _resolve_goals(
+    events: List[Event],
+    signals: dict,
+    cfg: DetectionConfig,
+) -> List[Event]:
+    """Promote a shot to a goal on positive evidence, not absence.
+
+    The old rule promoted any shot with no save/turnover nearby, which
+    manufactured goals out of ordinary shots (and out of midfield
+    activity misread as a shot). Promotion now requires:
+    1. No save within the confirmation window (a save vetoes the goal)
+    2. Celebration-level follow-through: mean activity 5-15s after the
+       shot stays at or above the goal threshold
+    3. The play sits outside the center band (an attacking area)
+    """
+    saves = [e for e in events if e.event_type == EventType.SAVE]
+    band_low, band_high = cfg.goal_center_band
+
+    for shot in [e for e in events if e.event_type == EventType.SHOT]:
+        if any(
+            abs(s.peak_time_sec - shot.peak_time_sec)
+            < cfg.goal_confirmation_window_sec
+            for s in saves
+        ):
+            continue
+        # Celebration energy is a spike, not a plateau: take the best
+        # 5-second mean in the 3-15s after the shot.
+        follow = max(
+            _window_mean(
+                signals, "activity",
+                shot.peak_time_sec + off, shot.peak_time_sec + off + 5.0,
+            )
+            for off in (3.0, 5.0, 7.5, 10.0)
+        )
+        if follow < cfg.goal_min_follow_activity:
+            continue
+        pos_med = _window_median(
+            signals, "center_x",
+            shot.peak_time_sec - 3.0, shot.peak_time_sec + 3.0,
+        )
+        if band_low <= pos_med <= band_high:
+            continue
+        shot.event_type = EventType.GOAL
+        shot.confidence = min(shot.confidence * 1.1 + 0.05, 0.95)
+        shot.description = shot.description.replace("Shot attempt", "Goal")
+        if "scoring_play" not in shot.tags:
             shot.tags.append("scoring_play")
-    
+
     return events
 
 
+def _filter_saves(
+    events: List[Event],
+    signals: dict,
+    cfg: DetectionConfig,
+) -> List[Event]:
+    """Keep saves that are linked to a shot, or strongly evidenced.
+
+    A save is a response to a shot. Calibration showed unlinked "saves"
+    were overwhelmingly stoppages and midfield slowdowns, while genuine
+    saves either sat within seconds of a shot or came with high local
+    activity and a fast incoming ball.
+    """
+    shots = [
+        e for e in events
+        if e.event_type in (EventType.SHOT, EventType.GOAL)
+    ]
+    time = signals["time"]
+    speed = signals["center_speed_smooth"]
+
+    kept: List[Event] = []
+    for e in events:
+        if e.event_type != EventType.SAVE:
+            kept.append(e)
+            continue
+        linked = any(
+            abs(s.peak_time_sec - e.peak_time_sec) <= cfg.save_link_window_sec
+            for s in shots
+        )
+        if linked:
+            e.confidence = min(e.confidence + 0.05, 1.0)
+            if "shot_linked" not in e.tags:
+                e.tags.append("shot_linked")
+            kept.append(e)
+            continue
+        local_act = _window_mean(
+            signals, "activity", e.peak_time_sec - 3.0, e.peak_time_sec + 3.0
+        )
+        lo = int(np.searchsorted(time, e.peak_time_sec - 3.0))
+        hi = int(np.searchsorted(time, e.peak_time_sec))
+        incoming = float(np.max(speed[lo:hi])) if hi > lo else 0.0
+        if (
+            local_act >= cfg.save_standalone_min_activity
+            and incoming >= cfg.save_standalone_min_speed
+        ):
+            if "standalone" not in e.tags:
+                e.tags.append("standalone")
+            kept.append(e)
+    return kept
+
+
+# One label per play: when several detectors fire inside one spacing
+# window, the highest-priority type wins (confidence breaks ties within
+# a type). Calibration found single plays labeled shot+save+turnover at
+# the same second.
+_TYPE_PRIORITY = {
+    EventType.GOAL: 0,
+    EventType.SAVE: 1,
+    EventType.SHOT: 2,
+    EventType.TRANSITION: 3,
+    EventType.FACE_OFF: 4,
+    EventType.TURNOVER: 5,
+}
+
+
 def _deduplicate_events(events: List[Event], cfg: DetectionConfig) -> List[Event]:
-    """Remove duplicate events that are too close together."""
+    """Collapse events whose peaks fall inside one spacing window."""
     if not events:
         return events
-    
-    # Sort by time
-    sorted_events = sorted(events, key=lambda e: e.peak_time_sec)
-    
+
+    def rank(e: Event):
+        return (_TYPE_PRIORITY.get(e.event_type, 99), -e.confidence)
+
     kept: List[Event] = []
-    for e in sorted_events:
-        # Check if too close to the last kept event
-        if kept:
-            last = kept[-1]
-            gap = e.peak_time_sec - last.peak_time_sec
-            
-            if gap < cfg.min_event_spacing_sec:
-                # Same event type → keep higher confidence
-                if e.event_type == last.event_type:
-                    if e.confidence > last.confidence:
-                        kept[-1] = e
-                    continue
-                # Different types → keep higher priority
-                elif e.confidence <= last.confidence:
-                    continue
-        
-        kept.append(e)
-    
+    for e in sorted(events, key=lambda x: x.peak_time_sec):
+        # Face-offs only compete with face-offs: a draw is a distinct
+        # beat of play, and the breakaway it triggers must not erase it
+        # (nor the draw erase a genuine quick shot that follows).
+        neighbours = [
+            k for k in kept
+            if abs(k.peak_time_sec - e.peak_time_sec) < cfg.min_event_spacing_sec
+            and (k.event_type == EventType.FACE_OFF)
+            == (e.event_type == EventType.FACE_OFF)
+        ]
+        if not neighbours:
+            kept.append(e)
+            continue
+        group = neighbours + [e]
+        winner = min(group, key=rank)
+        kept = [k for k in kept if k not in neighbours]
+        kept.append(winner)
+
     return kept
 
 

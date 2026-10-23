@@ -7,9 +7,17 @@ the domain models defined in src.telemetry.models.
 .track format (SDK V1.2.0+):
   Frame{N} SZ{N} Yaw{N} Pit{N} fps{N}
   [AF]FilterP{N} mot{N} Deque{N}(V{v},x{p})...
-  Fast{0-4} Crowdx{N}
+  Fast{N} Crowdx{N}
   FIN:x{N} V{N}
   Zoom:CPSz{N}
+
+  Signal notes (V1.2.0, verified against a real game file 2026-10-23):
+  the Deque object velocities are the play speed; FIN's V is the CAMERA's
+  pan velocity and must not be used as play speed. Fast is a wide motion
+  counter (observed 0-31, not 0-4); activity is derived from the Deque
+  speeds instead, matching the V1.4.0 handling. FIN's x (== Crowdx) is
+  the action center in the 2560-wide panoramic frame and is the dense
+  position signal; centerResX/autoCenterX lines are sparse and often 0.
 
 SDK V1.4.0 adds (frame header shares the UTC line):
   UTC... [fps{N}] Frame{N} Yaw{N} Pit{N} Detect{N} AFilter:P{N}
@@ -84,6 +92,30 @@ RE_VIRX = re.compile(r'virx([-\d.]+)\s+realx([-\d.]+)')
 RE_YAWMC = re.compile(r'YawMC\s+x([-\d.]+)\s+v([-\d.]+)')
 
 
+# ── object speed ───────────────────────────────────────────────────────────
+def _apply_object_speed(current: TrackPoint, match: re.Match, groups) -> None:
+    """Set center_speed / activity_score from Deque object velocities.
+
+    The fastest tracked object is the play speed (ball / carrier), on the
+    same normalization the V1.4.0 branch uses (raw ~0-400 -> 0-100).
+    Velocities arrive as ints on real V1.2.0 files and floats in some
+    fixtures, so parse them as floats. On success the point is flagged
+    via raw_fields['obj_speed'] so the Fast-line fallback stays out.
+    """
+    try:
+        vs = [abs(float(match.group(i))) for i in groups]
+    except ValueError:
+        return
+    obj_speed = max(vs) * 0.25
+    current.center_speed = float(obj_speed)
+    if obj_speed <= 0:
+        # All tracked objects still: the Deque line carries no motion
+        # information, so leave activity to the Fast-line fallback.
+        return
+    current.activity_score = min(obj_speed / 100.0, 1.0)
+    current.raw_fields["obj_speed"] = f"{obj_speed:.1f}"
+
+
 # ── fps sanity ─────────────────────────────────────────────────────────────
 def _normalize_fps(value: str | float | None) -> float:
     """Clamp a FALCON fps value to a sane range.
@@ -113,6 +145,15 @@ class ParsedTrack:
     points: List[TrackPoint] = field(default_factory=list)
     metadata: GameMetadata = field(default_factory=GameMetadata)
     summary: Optional[TrackSummary] = None
+    # Wall-clock start of the first frame (camera clock, from the UTC line).
+    # Track timestamps are seconds from this instant — NOT from the start
+    # of the paired video file. See telemetry.video_sync for the mapping.
+    start_utc: Optional[datetime] = None
+    # Recording gaps: (start_sec, end_sec) in track time where consecutive
+    # frames jump by more than a few seconds (e.g. halftime, when the
+    # camera paused recording but its clock kept running). The paired
+    # video file does not contain these spans.
+    gaps: List[Tuple[float, float]] = field(default_factory=list)
     
     def __repr__(self) -> str:
         n = len(self.points)
@@ -151,6 +192,7 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
     
     # ── Parse frames ──
     t0_sec: Optional[float] = None
+    first_dt: Optional[datetime] = None
     last_utc = ""
     current: Optional[TrackPoint] = None
     
@@ -178,6 +220,7 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
                     dt = datetime.strptime(f"{game_date} {utc_str}", "%Y-%m-%d %H:%M:%S.%f")
                 if t0_sec is None:
                     t0_sec = dt.timestamp()
+                    first_dt = dt
                 current.timestamp_sec = dt.timestamp() - t0_sec
             except ValueError:
                 pass
@@ -226,6 +269,19 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
                 current.motion_objects = int(am.group(2))
             except (ValueError, IndexError):
                 pass
+            # The Deque object list rides on this same line in V1.2.0
+            # files — parse it here, or it never runs (this handler
+            # consumes the line). Object velocities are the play speed.
+            dm2 = RE_DEQUE.search(line)
+            if dm2:
+                current.raw_fields["deque_count"] = dm2.group(1)
+                current.raw_fields["obj1_v"] = dm2.group(2)
+                current.raw_fields["obj1_x"] = dm2.group(3)
+                current.raw_fields["obj2_v"] = dm2.group(4)
+                current.raw_fields["obj2_x"] = dm2.group(5)
+                current.raw_fields["obj3_v"] = dm2.group(6)
+                current.raw_fields["obj3_x"] = dm2.group(7)
+                _apply_object_speed(current, dm2, (2, 4, 6))
             continue
         
         # Deque{N}(V{v},x{x})(V{v},x{x})(V{v},x{x})
@@ -240,14 +296,24 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
             current.raw_fields["obj2_x"] = dm.group(5)
             current.raw_fields["obj3_v"] = dm.group(6)
             current.raw_fields["obj3_x"] = dm.group(7)
+            # The tracked objects' velocities ARE the play speed (ball /
+            # carrier motion) — the same semantics the V1.4.0 branch uses.
+            # FIN's V, parsed below, is only the camera's pan velocity;
+            # using it as play speed makes detectors fire on camera moves.
+            _apply_object_speed(current, dm, (2, 4, 6))
             continue
         
-        # Fast{N} — activity level 0-4
+        # Fast{N} — camera motion counter (observed 0-31 on V1.2.0, not
+        # the 0-4 the format notes once claimed). Kept as a raw field;
+        # activity comes from the Deque object speeds above. Fallback
+        # only, for frames whose Deque line carried no velocities.
         fm_fast = RE_FAST.search(line)
         if fm_fast and 'Fast' in line[:10]:
             try:
                 fast_val = int(fm_fast.group(1))
-                current.activity_score = fast_val / 4.0  # Normalize 0-4 → 0.0-1.0
+                current.raw_fields["fast_level"] = str(fast_val)
+                if "obj_speed" not in current.raw_fields:
+                    current.activity_score = min(fast_val / 4.0, 1.0)
             except ValueError:
                 pass
             continue
@@ -262,11 +328,20 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
             continue
         
         # FIN:x{N} V{N}
+        # x = the action center in the 2560-wide panoramic frame (same
+        # value as Crowdx); V = the CAMERA's pan velocity. V is not play
+        # speed — it lives in raw_fields only. x is the dense position
+        # signal for V1.2.0 files: centerResX/autoCenterX lines are
+        # sparse and usually 0, so x fills center_x (normalized to the
+        # 0-1000 field scale) whenever no real center value was parsed.
         fin_m = RE_FIN.search(line)
         if fin_m:
             try:
-                current.center_speed = float(fin_m.group(2))  # Velocity
+                fin_x = float(fin_m.group(1))
                 current.raw_fields["fin_x"] = fin_m.group(1)
+                current.raw_fields["fin_v"] = fin_m.group(2)
+                if current.center_x == 0 and fin_x > 0:
+                    current.center_x = fin_x * (1000.0 / 2560.0)
             except ValueError:
                 pass
             continue
@@ -275,7 +350,11 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
         cen_m = RE_CENTER.search(line)
         if cen_m:
             try:
-                current.center_x = float(cen_m.group(1))
+                cx = float(cen_m.group(1))
+                if cx > 1000.0:
+                    # Panoramic-frame pixels (0-2560) → 0-1000 field scale
+                    cx *= 1000.0 / 2560.0
+                current.center_x = cx
             except ValueError:
                 pass
             continue
@@ -356,7 +435,18 @@ def parse_track_file(filepath: Path | str, *, compute_summary: bool = True) -> P
         # Estimate from the frame count so callers still get a useful value.
         metadata.video_fps = round(len(points) / points[-1].timestamp_sec)
     
-    result = ParsedTrack(points=points, metadata=metadata)
+    # Recording gaps: spans where the camera clock kept running but no
+    # frames were recorded (halftime, pauses). The paired video file
+    # omits them, so track time and video time diverge after a gap —
+    # telemetry.video_sync uses this list to map between the two.
+    gaps: List[Tuple[float, float]] = []
+    for a, b in zip(points, points[1:]):
+        if b.timestamp_sec - a.timestamp_sec > 5.0:
+            gaps.append((a.timestamp_sec, b.timestamp_sec))
+
+    result = ParsedTrack(
+        points=points, metadata=metadata, start_utc=first_dt, gaps=gaps,
+    )
     
     # ── Compute summary ──
     if compute_summary:
