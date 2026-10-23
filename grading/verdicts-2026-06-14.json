@@ -1,0 +1,369 @@
+{
+ "game": "2026-06-14",
+ "track_file": "VID_20260614_125909_01_01.track",
+ "detections": [
+  {
+   "type": "save",
+   "track_peak": 3.11,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. pre-game walk-on, no play"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 32.39,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "shot",
+   "track_peak": 48.7,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "save",
+   "track_peak": 133.97,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "turnover",
+   "track_peak": 207.92,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "shot",
+   "track_peak": 256.43,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "save",
+   "track_peak": 267.4,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 350.03,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. dead lull (activity ~0)"
+  },
+  {
+   "type": "save",
+   "track_peak": 430.28,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. post-lull restart, players standing"
+  },
+  {
+   "type": "shot",
+   "track_peak": 562.43,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "save",
+   "track_peak": 605.26,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "shot",
+   "track_peak": 638.24,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 716.94,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "save",
+   "track_peak": 735.7,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "save",
+   "track_peak": 875.04,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "turnover",
+   "track_peak": 929.95,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "shot",
+   "track_peak": 930.15,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "turnover",
+   "track_peak": 981.47,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "save",
+   "track_peak": 1033.49,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. stoppage, sparse field"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 1042.77,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1078.13,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "save",
+   "track_peak": 1150.97,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "turnover",
+   "track_peak": 1215.09,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. halftime walk-off (gap edge)"
+  },
+  {
+   "type": "save",
+   "track_peak": 1479.53,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1488.81,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1531.21,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "save",
+   "track_peak": 1579.27,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "turnover",
+   "track_peak": 1636.37,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "save",
+   "track_peak": 1688.11,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "goal",
+   "track_peak": 1793.87,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. midfield play, no goal-mouth action"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 1823.54,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "save",
+   "track_peak": 1827.95,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "turnover",
+   "track_peak": 2048.3,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "save",
+   "track_peak": 2082.98,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "shot",
+   "track_peak": 2173.36,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "save",
+   "track_peak": 2194.77,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "save",
+   "track_peak": 2333.48,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "shot",
+   "track_peak": 2341.7,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "shot",
+   "track_peak": 2409.88,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "save",
+   "track_peak": 2445.2,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "turnover",
+   "track_peak": 2474.1,
+   "verdict": "indeterminate",
+   "note": "screenshot triage: indeterminate from stills - needs clip review"
+  },
+  {
+   "type": "goal",
+   "track_peak": 2562.4,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "save",
+   "track_peak": 2670.2,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "shot",
+   "track_peak": 2680.84,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. "
+  },
+  {
+   "type": "shot",
+   "track_peak": 2751.81,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 2784.88,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. same peak as ev222; near-empty field"
+  },
+  {
+   "type": "save",
+   "track_peak": 2785.03,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. same peak as ev219; near-empty field"
+  },
+  {
+   "type": "save",
+   "track_peak": 2920.12,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "shot",
+   "track_peak": 2966.62,
+   "verdict": "consistent",
+   "note": "screenshot triage: context consistent"
+  },
+  {
+   "type": "save",
+   "track_peak": 3033.73,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. post-game milling"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3042.5,
+   "verdict": "contradicted",
+   "note": "screenshot triage: context contradicts prediction. handshake line forming"
+  }
+ ],
+ "miss_windows": [
+  {
+   "track_peak": 532.6,
+   "verdict": "real_miss",
+   "note": "goal-mouth cluster, no detection"
+  },
+  {
+   "track_peak": 786.6,
+   "verdict": "no_event",
+   "note": "goalie clear / settled at the goal"
+  },
+  {
+   "track_peak": 2978.0,
+   "verdict": "real_miss",
+   "note": "crease crash, player down at the goal"
+  },
+  {
+   "track_peak": 581.7,
+   "verdict": "real_miss",
+   "note": "attack converging on the left goal"
+  },
+  {
+   "track_peak": 281.7,
+   "verdict": "no_event",
+   "note": "open-field break, no goal attack"
+  },
+  {
+   "track_peak": 2043.5,
+   "verdict": "no_event",
+   "note": "distant play, near-empty frame (speed-spike artifact)"
+  },
+  {
+   "track_peak": 172.8,
+   "verdict": "no_event",
+   "note": "open-field sprint"
+  },
+  {
+   "track_peak": 1673.7,
+   "verdict": "no_event",
+   "note": "settled play near the goal, no shot"
+  },
+  {
+   "track_peak": 1442.4,
+   "verdict": "covered",
+   "note": "runout of the second-half draw detected at 1430s"
+  },
+  {
+   "track_peak": 1595.0,
+   "verdict": "no_event",
+   "note": "midfield ground-ball scrum"
+  },
+  {
+   "track_peak": 2108.1,
+   "verdict": "real_miss",
+   "note": "goal-mouth play, attackers converging"
+  }
+ ]
+}

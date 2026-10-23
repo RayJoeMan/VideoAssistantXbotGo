@@ -1,0 +1,320 @@
+{
+ "game": "2026-06-16",
+ "track_file": "VID_20260616_181207_01_01.track",
+ "detections": [
+  {
+   "type": "goal",
+   "track_peak": 1610.91,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (all goals graded)"
+  },
+  {
+   "type": "goal",
+   "track_peak": 2754.64,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (all goals graded)"
+  },
+  {
+   "type": "goal",
+   "track_peak": 2874.89,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (all goals graded)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 519.94,
+   "verdict": "contradicted",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1252.63,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1327.67,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1692.79,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 1964.32,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 2089.94,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 2196.78,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 2595.7,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 2718.09,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 2969.04,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3058.63,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3491.04,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3873.22,
+   "verdict": "contradicted",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 3994.47,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "shot",
+   "track_peak": 4160.59,
+   "verdict": "contradicted",
+   "note": "game-2 screenshot triage (every 4th shot)"
+  },
+  {
+   "type": "save",
+   "track_peak": 272.58,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 554.93,
+   "verdict": "contradicted",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 619.51,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 1290.87,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 1433.81,
+   "verdict": "contradicted",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 1478.93,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 2293.82,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 2399.0,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 3307.1,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 3554.75,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 3789.97,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "save",
+   "track_peak": 3961.64,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 2nd save)"
+  },
+  {
+   "type": "face_off",
+   "track_peak": 92.5,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 6th)"
+  },
+  {
+   "type": "face_off",
+   "track_peak": 1080.0,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 6th)"
+  },
+  {
+   "type": "face_off",
+   "track_peak": 1915.0,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 6th)"
+  },
+  {
+   "type": "face_off",
+   "track_peak": 3032.5,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 6th)"
+  },
+  {
+   "type": "transition",
+   "track_peak": 1101.39,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 4th)"
+  },
+  {
+   "type": "transition",
+   "track_peak": 2431.57,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 4th)"
+  },
+  {
+   "type": "transition",
+   "track_peak": 2852.37,
+   "verdict": "consistent",
+   "note": "game-2 screenshot triage (every 4th)"
+  },
+  {
+   "type": "transition",
+   "track_peak": 4020.74,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 4th)"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 18.66,
+   "verdict": "contradicted",
+   "note": "game-2 screenshot triage (every 5th)"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 1403.9,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 5th)"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 2863.39,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 5th)"
+  },
+  {
+   "type": "turnover",
+   "track_peak": 4088.36,
+   "verdict": "indeterminate",
+   "note": "game-2 screenshot triage (every 5th)"
+  }
+ ],
+ "miss_windows": [
+  {
+   "track_peak": 1230.4,
+   "verdict": "no_event",
+   "note": "hottest window in either game (speed 100): midfield collision, player decked"
+  },
+  {
+   "track_peak": 1495.5,
+   "verdict": "no_event",
+   "note": "full-sprint midfield break"
+  },
+  {
+   "track_peak": 2889.0,
+   "verdict": "no_event",
+   "note": "midfield convergence"
+  },
+  {
+   "track_peak": 1931.3,
+   "verdict": "real_miss",
+   "note": "attack developing toward the right goal"
+  },
+  {
+   "track_peak": 3202.3,
+   "verdict": "no_event",
+   "note": "midfield sprint wave"
+  },
+  {
+   "track_peak": 1382.2,
+   "verdict": "real_miss",
+   "note": "draw: formation in -2s frame, runout after"
+  },
+  {
+   "track_peak": 3915.6,
+   "verdict": "no_event",
+   "note": "midfield collision, player down"
+  },
+  {
+   "track_peak": 3689.0,
+   "verdict": "real_miss",
+   "note": "players converging on the right goal"
+  },
+  {
+   "track_peak": 1663.1,
+   "verdict": "no_event",
+   "note": "open-field running"
+  },
+  {
+   "track_peak": 1579.3,
+   "verdict": "no_event",
+   "note": "midfield ground-ball fight"
+  },
+  {
+   "track_peak": 1902.2,
+   "verdict": "no_event",
+   "note": "static reset formation"
+  },
+  {
+   "track_peak": 2064.5,
+   "verdict": "no_event",
+   "note": "distant midfield cluster"
+  }
+ ]
+}
