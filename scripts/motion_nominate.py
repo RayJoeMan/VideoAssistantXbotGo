@@ -24,6 +24,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from analysis.markers import markers_from_nominations, write_mark_fp
 from analysis.no_track import (
     NominationConfig,
     analyze_files,
@@ -44,7 +45,15 @@ def main() -> None:
                     help="use the v2 rule set (sustained pressure, post-goal "
                          "reset, luminance-normalized activity, rolling "
                          "thresholds) instead of v1")
+    ap.add_argument("--markers", action="store_true",
+                    help="also write the nominations as Falcon Player "
+                         "markers (.data/<stem>.mark.fp beside the video; "
+                         "requires a VIDEO argument)")
     args = ap.parse_args()
+
+    if args.markers and not args.video:
+        ap.error("--markers needs a VIDEO (the marker file lives beside it)")
+        return
 
     if args.wav and args.lowres:
         wav, low = Path(args.wav), Path(args.lowres)
@@ -64,6 +73,10 @@ def main() -> None:
           f"surges: {len(result['surges'])}  nominations: {len(noms)}"
           f"  rules: {'v2' if args.v2 else 'v1'}")
     print(f"wrote {args.out}")
+    if args.markers:
+        marks = markers_from_nominations(noms)
+        path = write_mark_fp(Path(args.video), marks)
+        print(f"wrote {len(marks)} markers to {path}")
 
 
 if __name__ == "__main__":
