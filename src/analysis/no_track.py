@@ -32,6 +32,21 @@ module self-calibrates to each recording's noise floor):
      activity within 5 s; peak at the first burst peak in the window.
   R3 ``crowd_surge``   -- crowd-surge onset; boosted when it lands
      within 5 s after a motion burst (``surge_after_burst``).
+
+Rules v2 (opt-in via :class:`NominationConfig`; the default config
+reproduces v1 exactly):
+  R4 ``sustained_pressure`` -- activity above the 70th percentile for
+     >= 20 s straight; the nomination sits at the END of the run,
+     because goals cap long attacking spells rather than starting them.
+  R5 ``post_goal_reset`` -- a burst followed within seconds by an
+     abrupt collapse (>= 5 s near-zero activity -- the whistle, the
+     stop) and a low-activity regroup (a settle within ~40 s -- both
+     teams walking back to center for the draw).
+  Signal options: activity can be the luminance-normalized Weber diff
+  (``ndiff``) instead of the raw diff, and thresholds can be rolling
+  (10-minute window) instead of whole-game -- both aimed at taming
+  the sunset effect, where long evening shadows inflate the raw diff
+  and pile nominations into the last part of a game.
 Nominations whose peaks fall within 8 s are merged (reasons unioned,
 highest component score kept).
 
@@ -229,15 +244,23 @@ def motion_series(frames, fps: float = MOTION_FPS) -> dict:
 
     Returns dict of numpy arrays: ``t`` (sec, at the later frame),
     ``diff`` (mean abs pixel difference / 255), ``pan`` (signed
-    horizontal scene shift, px/frame).
+    horizontal scene shift, px/frame), ``lum`` (mean luminance of the
+    later frame, 0-255), ``ndiff`` (Weber-normalized difference:
+    mean |a-b| / (a+b+1) -- pixel change relative to local brightness,
+    so a shadow edge sweeping bright grass cannot dominate the way it
+    does in the raw diff).  ``lum``/``ndiff`` feed the v2 signal
+    options; v1 reads only ``t``/``diff``/``pan``.
     """
-    ts, diffs, pans = [], [], []
+    ts, diffs, pans, lums, ndiffs = [], [], [], [], []
     prev = None
     prev_profile = None
     for i, frame in enumerate(frames):
         f = frame.astype(np.float32)
         if prev is not None:
-            diffs.append(float(np.abs(f - prev).mean()) / 255.0)
+            delta = np.abs(f - prev)
+            diffs.append(float(delta.mean()) / 255.0)
+            ndiffs.append(float((delta / (f + prev + 1.0)).mean()))
+            lums.append(float(f.mean()))
             profile = f.mean(axis=0)
             pans.append(pan_from_profiles(prev_profile, profile))
             ts.append(i / fps)
@@ -245,7 +268,8 @@ def motion_series(frames, fps: float = MOTION_FPS) -> dict:
         else:
             prev_profile = f.mean(axis=0)
         prev = f
-    return {"t": np.array(ts), "diff": np.array(diffs), "pan": np.array(pans)}
+    return {"t": np.array(ts), "diff": np.array(diffs), "pan": np.array(pans),
+            "lum": np.array(lums), "ndiff": np.array(ndiffs)}
 
 
 def iter_lowres_frames(path: Path | str, fps: float = MOTION_FPS,
@@ -305,6 +329,53 @@ def _segments_above(x: np.ndarray, thresh: float, min_gap: int) -> List[Tuple[in
     return merged
 
 
+def _segments_mask(mask: np.ndarray, min_gap: int) -> List[Tuple[int, int]]:
+    """Index spans where ``mask`` is True, merging spans < min_gap apart."""
+    spans: List[Tuple[int, int]] = []
+    i, n = 0, len(mask)
+    while i < n:
+        if mask[i]:
+            j = i
+            while j < n and mask[j]:
+                j += 1
+            spans.append((i, j))
+            i = j
+        else:
+            i += 1
+    merged: List[Tuple[int, int]] = []
+    for s, e in spans:
+        if merged and s - merged[-1][1] < min_gap:
+            merged[-1] = (merged[-1][0], e)
+        else:
+            merged.append((s, e))
+    return merged
+
+
+def _rolling_percentile(x: np.ndarray, fps: float, window_sec: float,
+                        pcts: Sequence[float]) -> np.ndarray:
+    """Rolling percentiles of ``x``: one row per sample, shape (n, len(pcts)).
+
+    Percentiles are computed per 1-second bucket over a centered
+    ``window_sec`` slice (clamped at the edges) and shared by the
+    bucket's samples.  Slices thinner than 40 samples fall back to the
+    whole series, so very short recordings still get sane thresholds.
+    """
+    n = len(x)
+    if n == 0:
+        return np.empty((0, len(pcts)))
+    hw = max(1, int(window_sec * fps / 2))
+    out = np.empty((n, len(pcts)), dtype=np.float64)
+    fallback = np.percentile(x, pcts)
+    n_buckets = int(np.ceil(n / fps))
+    for b in range(n_buckets):
+        s0 = int(b * fps)
+        s1 = min(n, int((b + 1) * fps))
+        center = (s0 + s1) // 2
+        seg = x[max(0, center - hw): min(n, center + hw)]
+        out[s0:s1] = np.percentile(seg, pcts) if len(seg) >= 40 else fallback
+    return out
+
+
 @dataclass
 class Nomination:
     start_sec: float
@@ -323,13 +394,9 @@ class Nomination:
         }
 
 
-def build_nominations(motion: dict, whistles: List[dict], surges: List[dict],
-                      duration: float, fps: float = MOTION_FPS) -> List[dict]:
-    """Combine audio + motion cues into merged nominations.
-
-    Thresholds are percentiles of *this* game's signals, so nothing is
-    tuned to any particular game's ground truth.
-    """
+def _build_nominations_v1(motion: dict, whistles: List[dict], surges: List[dict],
+                          duration: float, fps: float = MOTION_FPS) -> List[dict]:
+    """The original (v1) nomination rules; see build_nominations."""
     t = motion["t"]
     if len(t) < int(30 * fps):
         return []
@@ -416,6 +483,183 @@ def build_nominations(motion: dict, whistles: List[dict], surges: List[dict],
     return [m.to_dict() for m in merged]
 
 
+# ── Rules v2 ─────────────────────────────────────────────────────────
+
+@dataclass
+class NominationConfig:
+    """Feature flags for the v2 nomination rules.
+
+    All flags off (the default) reproduces v1 behavior exactly; each
+    flag turns on one independent change so the sweep can attribute
+    any gain or regression to a single cause.
+    """
+    sustained_pressure: bool = False   # R4: long hot run, peak at run end
+    post_goal_reset: bool = False      # R5: burst -> collapse -> regroup
+    luminance_normalize: bool = False  # activity = Weber ndiff, not raw diff
+    rolling_thresholds: bool = False   # percentiles over a rolling window
+    pressure_pct: float = 70.0         # R4 activity percentile
+    pressure_min_sec: float = 20.0     # R4 minimum run length
+    rolling_window_sec: float = 600.0  # rolling-percentile window (10 min)
+
+    def any_enabled(self) -> bool:
+        return (self.sustained_pressure or self.post_goal_reset
+                or self.luminance_normalize or self.rolling_thresholds)
+
+    @classmethod
+    def v2(cls) -> "NominationConfig":
+        """The full v2 rule set (all flags on)."""
+        return cls(sustained_pressure=True, post_goal_reset=True,
+                   luminance_normalize=True, rolling_thresholds=True)
+
+
+def _build_nominations_v2(motion: dict, whistles: List[dict], surges: List[dict],
+                          duration: float, fps: float,
+                          cfg: NominationConfig) -> List[dict]:
+    """V2 rules: v1's R1-R3 on (optionally) normalized signals with
+    (optionally) rolling thresholds, plus the goal-shaped R4/R5."""
+    t = motion["t"]
+    if len(t) < int(30 * fps):
+        return []
+    base = motion["diff"]
+    if cfg.luminance_normalize and "ndiff" in motion:
+        base = motion["ndiff"]
+    act = _moving_avg(base, int(1.0 * fps))          # ~1 s smoothing
+    pan_rate = _moving_avg(np.abs(motion["pan"]), int(1.0 * fps))
+    n = len(act)
+
+    pcts = [25.0, 40.0, 50.0, float(cfg.pressure_pct), 80.0]
+    if cfg.rolling_thresholds:
+        A = _rolling_percentile(act, fps, cfg.rolling_window_sec, pcts)
+        P60 = _rolling_percentile(pan_rate, fps, cfg.rolling_window_sec,
+                                  [60.0])[:, 0]
+    else:
+        A = np.tile(np.percentile(act, pcts), (n, 1))
+        P60 = np.full(n, float(np.percentile(pan_rate, 60)))
+    q25, q40, q50, q_pressure, q80 = (A[:, i] for i in range(5))
+    pan_thr = np.maximum(0.6, P60)
+
+    # settles: quiet picture AND still camera, sustained >= SETTLE_MIN_SEC
+    settle_spans = _segments_mask((act <= q40) & (pan_rate < pan_thr),
+                                  int(0.5 * fps))
+    settles = [(t[s], t[min(e, n - 1)]) for s, e in settle_spans
+               if (e - s) / fps >= SETTLE_MIN_SEC]
+
+    # bursts: activity above the (local) 80th percentile
+    burst_spans = _segments_mask(act > q80, int(3.0 * fps))
+    bursts = []
+    for s, e in burst_spans:
+        pk = s + int(np.argmax(act[s:e]))
+        bursts.append({"onset": float(t[s]), "peak": float(t[pk]),
+                       "peak_i": pk, "end_i": e,
+                       "strength": float(act[pk] / (q80[pk] + 1e-9))})
+
+    noms: List[Nomination] = []
+
+    def add(peak: float, reason: str, score: float, onset: Optional[float] = None):
+        start = max(0.0, (onset if onset is not None else peak) - 2.0)
+        noms.append(Nomination(
+            start_sec=max(0.0, min(start, peak - NOM_PRE_SEC + 4.0)),
+            peak_sec=float(peak),
+            end_sec=min(duration, peak + NOM_POST_SEC),
+            reasons=[reason], score=float(score)))
+
+    # R1: settle -> burst (settle ends within the lookback before onset)
+    for b in bursts:
+        prior = [sp for sp in settles
+                 if -1.0 <= b["onset"] - sp[1] <= SETTLE_LOOKBACK_SEC]
+        if prior:
+            add(b["peak"], "settle_burst",
+                min(1.0, 0.55 + 0.2 * (b["strength"] - 1.0)), onset=b["onset"])
+
+    # R2: whistle followed by live play
+    for w in whistles:
+        lo, hi = w["start_sec"] - 1.0, w["start_sec"] + 6.0
+        near = [b for b in bursts if lo <= b["peak"] <= hi]
+        win = (t >= w["start_sec"]) & (t <= w["start_sec"] + 5.0)
+        if len(act[win]) and act[win].mean() > q50[win].mean():
+            if near:
+                add(near[0]["peak"], "whistle_play", 0.75, onset=w["start_sec"])
+            else:
+                add(w["start_sec"] + 1.0, "whistle_play", 0.55, onset=w["start_sec"])
+
+    # R3: crowd surge (boost when it follows a burst)
+    for s in surges:
+        prior_b = [b for b in bursts if 0.0 <= s["peak_sec"] - b["peak"] <= 5.0]
+        if prior_b:
+            add(prior_b[-1]["peak"], "crowd_surge", 0.9, onset=prior_b[-1]["onset"])
+            noms[-1].reasons.append("surge_after_burst")
+        else:
+            near = [b for b in bursts if abs(b["peak"] - s["peak_sec"]) <= 3.0]
+            add(near[0]["peak"] if near else s["peak_sec"], "crowd_surge", 0.7,
+                onset=s["start_sec"])
+
+    # R4: sustained pressure -- a long hot run; goals cap these spells,
+    # so the nomination sits at the END of the run, not its start.
+    if cfg.sustained_pressure:
+        hot = _segments_mask(act > q_pressure, int(1.0 * fps))
+        for s, e in hot:
+            run_sec = (e - s) / fps
+            if run_sec >= cfg.pressure_min_sec:
+                add(float(t[e - 1]), "sustained_pressure",
+                    min(1.0, 0.6 + 0.02 * (run_sec - cfg.pressure_min_sec)),
+                    onset=float(t[s]))
+
+    # R5: post-goal reset -- burst, then an abrupt collapse (the
+    # whistle stops play), then a regroup settle as both teams walk
+    # back to center for the draw.
+    if cfg.post_goal_reset:
+        low_spans = _segments_mask(act < q25, int(0.5 * fps))
+        for b in bursts:
+            end_t = float(t[min(b["end_i"], n - 1)])
+            collapse = None
+            for s, e in low_spans:
+                if end_t - 0.5 <= t[s] <= end_t + 4.0 and (e - s) / fps >= 5.0:
+                    collapse = (s, e)
+                    break
+            if collapse is None:
+                continue
+            regroup = any(sp[0] <= b["peak"] + 40.0 and sp[1] >= end_t
+                          for sp in settles)
+            if regroup:
+                add(b["peak"], "post_goal_reset", 0.85, onset=b["onset"])
+
+    # merge peaks within MERGE_PEAK_GAP_SEC (same scheme as v1)
+    noms.sort(key=lambda n: n.peak_sec)
+    merged: List[Nomination] = []
+    for n_ in noms:
+        if merged and n_.peak_sec - merged[-1].peak_sec <= MERGE_PEAK_GAP_SEC:
+            m = merged[-1]
+            keep = n_ if n_.score > m.score else m
+            reasons = sorted(set(m.reasons) | set(n_.reasons))
+            merged[-1] = Nomination(
+                start_sec=min(m.start_sec, n_.start_sec),
+                peak_sec=keep.peak_sec,
+                end_sec=max(m.end_sec, n_.end_sec),
+                reasons=reasons,
+                score=max(m.score, n_.score) + 0.05 * (len(reasons) - 1))
+        else:
+            merged.append(n_)
+    for m in merged:
+        m.start_sec = max(0.0, min(m.start_sec, m.peak_sec - 1.0))
+        m.end_sec = min(duration, max(m.end_sec, m.peak_sec + 3.0))
+    return [m.to_dict() for m in merged]
+
+
+def build_nominations(motion: dict, whistles: List[dict], surges: List[dict],
+                      duration: float, fps: float = MOTION_FPS,
+                      config: Optional[NominationConfig] = None) -> List[dict]:
+    """Combine audio + motion cues into merged nominations.
+
+    Thresholds are percentiles of *this* game's signals, so nothing is
+    tuned to any particular game's ground truth.  With ``config`` None
+    (or all v2 flags off) this is exactly the v1 rule set; see
+    :class:`NominationConfig` for the v2 options.
+    """
+    if config is None or not config.any_enabled():
+        return _build_nominations_v1(motion, whistles, surges, duration, fps)
+    return _build_nominations_v2(motion, whistles, surges, duration, fps, config)
+
+
 # ══════════════════════════════════════════════════════════════════════
 # File-level orchestration
 # ══════════════════════════════════════════════════════════════════════
@@ -446,7 +690,8 @@ def probe_duration(path: Path | str) -> float:
 
 
 def analyze_files(wav_path: Path | str, lowres_path: Path | str,
-                  duration: Optional[float] = None) -> dict:
+                  duration: Optional[float] = None,
+                  config: Optional[NominationConfig] = None) -> dict:
     """Run the full nominator on pre-extracted derivatives."""
     samples, sr = load_wav(wav_path)
     whistles = detect_whistles(samples, sr)
@@ -455,7 +700,7 @@ def analyze_files(wav_path: Path | str, lowres_path: Path | str,
     motion = motion_series(iter_lowres_frames(lowres_path))
     if duration is None:
         duration = probe_duration(lowres_path)
-    noms = build_nominations(motion, whistles, surges, duration)
+    noms = build_nominations(motion, whistles, surges, duration, config=config)
     return {
         "duration_sec": round(duration, 1),
         "whistles": whistles,

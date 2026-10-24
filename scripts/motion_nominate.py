@@ -24,7 +24,12 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from analysis.no_track import analyze_files, extract_derivatives, probe_duration
+from analysis.no_track import (
+    NominationConfig,
+    analyze_files,
+    extract_derivatives,
+    probe_duration,
+)
 
 
 def main() -> None:
@@ -35,6 +40,10 @@ def main() -> None:
                     help="where to cache derivatives")
     ap.add_argument("--wav", help="pre-extracted mono 16 kHz wav")
     ap.add_argument("--lowres", help="pre-extracted low-fps grayscale rendition")
+    ap.add_argument("--v2", action="store_true",
+                    help="use the v2 rule set (sustained pressure, post-goal "
+                         "reset, luminance-normalized activity, rolling "
+                         "thresholds) instead of v1")
     args = ap.parse_args()
 
     if args.wav and args.lowres:
@@ -47,11 +56,13 @@ def main() -> None:
         ap.error("give a VIDEO, or both --wav and --lowres")
         return
 
-    result = analyze_files(wav, low, duration=duration)
+    config = NominationConfig.v2() if args.v2 else None
+    result = analyze_files(wav, low, duration=duration, config=config)
     Path(args.out).write_text(json.dumps(result["nominations"], indent=1))
     noms = result["nominations"]
     print(f"video: {duration:.0f}s  whistles: {len(result['whistles'])}  "
-          f"surges: {len(result['surges'])}  nominations: {len(noms)}")
+          f"surges: {len(result['surges'])}  nominations: {len(noms)}"
+          f"  rules: {'v2' if args.v2 else 'v1'}")
     print(f"wrote {args.out}")
 
 
