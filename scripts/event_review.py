@@ -11,6 +11,9 @@ no built-in ground truth in FALCON tracks, so the loop is:
   # 2. Export EVERY detected event as a clip you can quickly watch
   python scripts/event_review.py export VIDEO TRACK OUTDIR
 
+  # 2b. Or write the events as Falcon Player markers beside the video
+  python scripts/event_review.py markers VIDEO TRACK
+
   # 3. Generate a label sheet (JSONL) pre-filled with predictions
   python scripts/event_review.py labels TRACK labels.jsonl
 
@@ -39,6 +42,7 @@ sys.path.insert(0, str(ROOT / "src"))
 from telemetry.parser import parse_track_file  # noqa: E402
 from telemetry.video_sync import sync_for  # noqa: E402
 from analysis.detection import detect_events  # noqa: E402
+from analysis.markers import markers_from_events, write_mark_fp  # noqa: E402
 from export.ffmpeg import ExportConfig, extract_clip_from_event  # noqa: E402
 
 
@@ -183,6 +187,41 @@ def cmd_export(args) -> int:
     return 0
 
 
+def cmd_markers(args) -> int:
+    """Write detected events as Falcon Player markers (.mark.fp).
+
+    The marker file lands in the video's .data folder, so opening the
+    game in Falcon Player shows every detection as a jumpable marker.
+    Event times are mapped from track time to video time through the
+    .vdata sync, exactly as clip export does.
+    """
+    video = Path(args.video)
+    if not video.exists():
+        print(f"video not found: {video}")
+        return 2
+    track, events = _detect(Path(args.track), args.min_confidence)
+
+    sync = sync_for(track, video)
+    if sync is not None:
+        print(
+            f"video sync: head offset {sync.head_offset_sec:+.1f}s, "
+            f"{len(track.gaps)} recording gap(s) — markers use video time"
+        )
+        events = [sync.map_event(e) for e in events]
+    else:
+        print(
+            "WARNING: no .vdata sidecar found for the video — markers use "
+            "raw track times and may be offset from the play"
+        )
+
+    marks = markers_from_events(events)
+    path = write_mark_fp(video, marks)
+    counts = Counter(m["type"] for m in marks)
+    summary = ", ".join(f"{code} ×{n}" for code, n in sorted(counts.items()))
+    print(f"wrote {len(marks)} markers to {path} ({summary})")
+    return 0
+
+
 def cmd_labels(args) -> int:
     """Write a JSONL label sheet pre-filled with predictions."""
     track, events = _detect(Path(args.track), args.min_confidence)
@@ -300,6 +339,13 @@ def build_parser() -> argparse.ArgumentParser:
     p_export.add_argument("--titles", action="store_true", help="burn titles")
     p_export.add_argument("--min-confidence", type=float, default=0.0)
     p_export.set_defaults(func=cmd_export)
+
+    p_markers = sub.add_parser(
+        "markers", help="write events as Falcon Player .mark.fp markers")
+    p_markers.add_argument("video")
+    p_markers.add_argument("track")
+    p_markers.add_argument("--min-confidence", type=float, default=0.0)
+    p_markers.set_defaults(func=cmd_markers)
 
     p_labels = sub.add_parser("labels", help="generate a JSONL label sheet")
     p_labels.add_argument("track")
