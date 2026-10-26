@@ -16,5 +16,8 @@ PyQt6>=6.6.0         # Desktop UI framework
 pyinstaller>=6.0.0   # Packages the app into a standalone executable
 pillow>=10.0.0       # Generates icon.ico / icon.iconset for packaging
 
+# ── Optional (Highlight Session 2: local caption transcription) ──
+faster-whisper>=1.0.0  # Local faster-whisper caption transcription (highlight.captions)
+
 # ── Optional (Phase 5: Cloud integration) ───────────────────────────────
 # firebase-admin>=6.0.0 # Catch Tracker cloud upload
