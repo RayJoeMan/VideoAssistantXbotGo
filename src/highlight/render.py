@@ -33,6 +33,7 @@ import math
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import List, Optional, Sequence
@@ -153,6 +154,35 @@ def build_position_provider(project: HighlightProject, aspect: float):
     )
 
 
+@dataclass
+class CropReframe:
+    """A moving crop window the CALLER applies to the base video.
+
+    The vertical export crops the full-size base video with a window
+    that follows the subject, then draws these overlays in the
+    cropped frame's coordinates.  ``offsets`` holds one (x, y)
+    top-left per output frame, in source pixels.  The ring and the
+    callout anchors are re-expressed through the current frame's
+    offset, and the ring radii rescale by src/crop per axis, so the
+    ellipse keeps its true on-screen shape inside the crop (a single
+    scalar could not: a 9:16 crop of a 16:9 frame scales x and y by
+    different factors).
+    """
+
+    src_width: int
+    src_height: int
+    crop_width: int
+    crop_height: int
+    offsets: Sequence
+
+    def offset_at(self, frame_index: int):
+        """The crop top-left for *frame_index* (clamped to the ends)."""
+        if not self.offsets:
+            return (0, 0)
+        i = min(max(int(frame_index), 0), len(self.offsets) - 1)
+        return self.offsets[i]
+
+
 # ══════════════════════════════════════════════════════════════════════════
 # Overlay rasterization (pure)
 # ══════════════════════════════════════════════════════════════════════════
@@ -178,6 +208,7 @@ def overlay_frame_rgba(
     fps: int,
     provider=None,
     timeline: Timeline = None,
+    reframe: CropReframe = None,
 ) -> np.ndarray:
     """The (height, width, 4) uint8 RGBA overlay for one output frame.
 
@@ -196,6 +227,10 @@ def overlay_frame_rgba(
     telemetry-compensated provider when the project names a track.
     *timeline*, when given, maps this frame through the project's
     beats instead of the Session 1 1:1 rule.
+    *reframe*, when given, re-expresses positions through a moving
+    crop window (see CropReframe) — the vertical export draws its
+    overlays in cropped coordinates while the provider still speaks
+    full-frame ones.
     """
     t_out = frame_index / float(fps)
     if timeline is not None:
@@ -207,9 +242,16 @@ def overlay_frame_rgba(
         rel_scale = 1.0
     else:
         nx, ny, rel_scale = provider(t)
+    scale_x = scale_y = rel_scale
+    if reframe is not None:
+        off_x, off_y = reframe.offset_at(frame_index)
+        nx = (nx * reframe.src_width - off_x) / reframe.crop_width
+        ny = (ny * reframe.src_height - off_y) / reframe.crop_height
+        scale_x = rel_scale * reframe.src_width / reframe.crop_width
+        scale_y = rel_scale * reframe.src_height / reframe.crop_height
     cx, cy = nx * width, ny * height
-    rx = project.ring.rx * width * rel_scale
-    ry = project.ring.ry * height * rel_scale
+    rx = project.ring.rx * width * scale_x
+    ry = project.ring.ry * height * scale_y
 
     frame = np.zeros((height, width, 4), dtype=np.uint8)
     dim_alpha = project.dim.strength if project.dim.enabled else 0.0
@@ -272,10 +314,14 @@ def overlay_frame_rgba(
         for callout in active_callouts:
             anchor_kf = project.keyframes[callout.keyframe]
             if provider is None:
-                anchor_x, anchor_y = anchor_kf.x * width, anchor_kf.y * height
+                ax, ay = anchor_kf.x, anchor_kf.y
             else:
                 ax, ay, _scale = provider(anchor_kf.t)
-                anchor_x, anchor_y = ax * width, ay * height
+            if reframe is not None:
+                off_x, off_y = reframe.offset_at(frame_index)
+                ax = (ax * reframe.src_width - off_x) / reframe.crop_width
+                ay = (ay * reframe.src_height - off_y) / reframe.crop_height
+            anchor_x, anchor_y = ax * width, ay * height
             _draw_callout(draw, callout.text, anchor_x, anchor_y, width, height, ry)
         frame = np.asarray(img)
     return frame
@@ -396,6 +442,7 @@ def write_overlay_frames(
     fps: int,
     provider=None,
     timeline: Timeline = None,
+    reframe: CropReframe = None,
 ) -> int:
     """Rasterize every output frame into *frames_dir*; returns the count.
 
@@ -423,7 +470,8 @@ def write_overlay_frames(
         count = output_frame_count(project, fps)
     for i in range(count):
         rgba = overlay_frame_rgba(
-            project, i, width, height, fps, provider=provider, timeline=timeline
+            project, i, width, height, fps,
+            provider=provider, timeline=timeline, reframe=reframe,
         )
         Image.fromarray(rgba, "RGBA").save(out_dir / (FRAME_NAME_PATTERN % i))
     return count

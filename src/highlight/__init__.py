@@ -6,7 +6,15 @@ Session 2: voiceover takes with a ducked mix and loudnorm (audio.py),
 captions — faster-whisper transcription into project cues, burn-in
 plus an .srt sidecar (captions.py) — and editorial beats: slow-mo
 segments, mid-clip freezes and text callouts, all timed by the
-output-timeline math in timeline.py.  Dual exports land in Session 3.
+output-timeline math in timeline.py.
+
+Session 3 (dual exports): export.py drives all three deliverables
+from one command — the recruiting cut with its player end card, the
+clean full-game preset, and the vertical "Lacrosse IQ with Abby"
+short (title/end cards from cards.py; a moving 9:16 crop follows
+the spotlight subject, and render.CropReframe lets the overlay pass
+draw in the cropped frame's coordinates).  Player identity for the
+cards lives in the project's ``player`` block / ``play_title``.
 
 tracking.py also carries telemetry-compensated interpolation: when a
 project names Falcon .track telemetry, keyframes are interpolated in
@@ -27,6 +35,7 @@ from .project import (
     ExportPreset,
     HighlightProject,
     Keyframe,
+    PlayerInfo,
     RingSettings,
     TelemetrySettings,
     VoiceoverSettings,
@@ -58,7 +67,35 @@ from .captions import (
     wrap_caption_lines,
     write_srt,
 )
+from .cards import (
+    END_CARD_S,
+    SERIES_NAME,
+    TITLE_CARD_S,
+    recruiting_end_card_lines,
+    render_card_png,
+    vertical_end_card_lines,
+    vertical_title_card_lines,
+)
+from .export import (
+    CLEAN,
+    EXPORT_NAMES,
+    RECRUITING,
+    VERTICAL,
+    ExportReport,
+    ExportResult,
+    MediaInfo,
+    build_concat_card_command,
+    build_vertical_command,
+    crop_dimensions,
+    export_project,
+    probe_media,
+    render_clean,
+    subject_crop_offsets,
+    verify_output,
+    write_crop_commands,
+)
 from .render import (
+    CropReframe,
     build_effects_ffmpeg_command,
     build_ffmpeg_command,
     build_filtergraph,
@@ -92,7 +129,14 @@ from .tracking import (
 __all__ = [
     "BEAT_FREEZE",
     "BEAT_SLOWMO",
+    "CLEAN",
+    "END_CARD_S",
+    "EXPORT_NAMES",
     "PROJECT_VERSION",
+    "RECRUITING",
+    "SERIES_NAME",
+    "TITLE_CARD_S",
+    "VERTICAL",
     "Beat",
     "Callout",
     "CameraCalibration",
@@ -101,10 +145,15 @@ __all__ = [
     "CaptionCue",
     "ClipWindow",
     "CompensatedInterpolator",
+    "CropReframe",
     "DimSettings",
     "ExportPreset",
+    "ExportReport",
+    "ExportResult",
     "HighlightProject",
     "Keyframe",
+    "MediaInfo",
+    "PlayerInfo",
     "RingSettings",
     "TakeSpan",
     "TelemetrySettings",
@@ -112,6 +161,7 @@ __all__ = [
     "TimelineSegment",
     "VoiceoverSettings",
     "VoiceoverTake",
+    "build_concat_card_command",
     "build_duck_volume_filter",
     "build_effects_ffmpeg_command",
     "build_ffmpeg_command",
@@ -122,11 +172,14 @@ __all__ = [
     "build_segment_video_filters",
     "build_take_filter",
     "build_timeline",
+    "build_vertical_command",
     "callout_layout",
+    "crop_dimensions",
     "cues_from_segments",
     "cues_to_srt",
     "default_export_presets",
     "duck_gain_db_at",
+    "export_project",
     "fill_project_captions",
     "frame_source_time",
     "frame_to_field",
@@ -143,16 +196,25 @@ __all__ = [
     "position_at",
     "position_at_compensated",
     "probe_duration",
+    "probe_media",
     "read_srt",
+    "recruiting_end_card_lines",
+    "render_card_png",
+    "render_clean",
     "render_duration",
     "render_project",
     "sample_positions",
     "save_project",
     "silence_bed_filter",
     "smoothstep",
+    "subject_crop_offsets",
     "take_spans",
     "transcribe_take_cues",
+    "verify_output",
+    "vertical_end_card_lines",
+    "vertical_title_card_lines",
     "wrap_caption_lines",
+    "write_crop_commands",
     "write_overlay_frames",
     "write_srt",
 ]
