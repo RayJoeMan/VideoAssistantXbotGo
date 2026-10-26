@@ -47,6 +47,10 @@ Conventions:
     keyframe) and ``beats`` (slow-mo / freeze marks on the source
     timeline).  Absent blocks serialize absent — a Session 1 project
     file round-trips byte-identically.
+  * Optional Session 3 blocks: ``player`` (who the highlight is about
+    — the recruiting end card and the vertical series' identity) and
+    ``play_title`` (the play's name, used on the vertical title
+    card).  Same rule: absent serializes absent.
 """
 
 from __future__ import annotations
@@ -500,6 +504,59 @@ def default_export_presets() -> List[ExportPreset]:
 
 
 @dataclass
+class PlayerInfo:
+    """Who the highlight is about (Session 3) — card identity data.
+
+    ``name`` is the only required field; every other field renders
+    only when non-empty, so a partially-known profile still produces
+    a clean end card.  ``class_year`` is the graduation year as a
+    string ("2028"); ``handle`` is the athlete's social handle for
+    the vertical series' end card.
+    """
+
+    name: str
+    class_year: str = ""
+    position: str = ""
+    team: str = ""
+    contact: str = ""
+    handle: str = ""
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError(f"player.name must be a non-empty string, got {self.name!r}")
+        self.name = self.name.strip()
+        for label in ("class_year", "position", "team", "contact", "handle"):
+            value = getattr(self, label)
+            if not isinstance(value, str):
+                raise ValueError(f"player.{label} must be a string, got {value!r}")
+            setattr(self, label, value.strip())
+
+    def to_dict(self) -> dict:
+        out = {"name": self.name}
+        for label in ("class_year", "position", "team", "contact", "handle"):
+            value = getattr(self, label)
+            if value:
+                out[label] = value
+        return out
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "PlayerInfo":
+        if not isinstance(data, dict):
+            raise ValueError(f"player must be an object, got {data!r}")
+        try:
+            return cls(
+                name=data["name"],
+                class_year=data.get("class_year", ""),
+                position=data.get("position", ""),
+                team=data.get("team", ""),
+                contact=data.get("contact", ""),
+                handle=data.get("handle", ""),
+            )
+        except KeyError as exc:
+            raise ValueError(f"player missing field {exc}") from None
+
+
+@dataclass
 class HighlightProject:
     """One play's complete edit description (see module docstring)."""
 
@@ -516,12 +573,17 @@ class HighlightProject:
     captions: List[CaptionCue] = field(default_factory=list)
     callouts: List[Callout] = field(default_factory=list)
     beats: List[Beat] = field(default_factory=list)
+    player: Optional[PlayerInfo] = None
+    play_title: str = ""
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_video, str) or not self.source_video.strip():
             raise ValueError(f"source_video must be a non-empty string, got {self.source_video!r}")
         if not isinstance(self.tag_text, str):
             raise ValueError(f"tag_text must be a string, got {self.tag_text!r}")
+        if not isinstance(self.play_title, str):
+            raise ValueError(f"play_title must be a string, got {self.play_title!r}")
+        self.play_title = self.play_title.strip()
         self.freeze_intro_s = _num(
             "freeze_intro_s", self.freeze_intro_s, 0.0, MAX_FREEZE_INTRO_S
         )
@@ -603,6 +665,10 @@ class HighlightProject:
             out["callouts"] = [c.to_dict() for c in self.callouts]
         if self.beats:
             out["beats"] = [b.to_dict() for b in self.beats]
+        if self.player is not None:
+            out["player"] = self.player.to_dict()
+        if self.play_title:
+            out["play_title"] = self.play_title
         return out
 
     @classmethod
@@ -646,6 +712,12 @@ class HighlightProject:
             captions=[CaptionCue.from_dict(c) for c in data.get("captions", [])],
             callouts=[Callout.from_dict(c) for c in data.get("callouts", [])],
             beats=[Beat.from_dict(b) for b in data.get("beats", [])],
+            player=(
+                PlayerInfo.from_dict(data["player"])
+                if data.get("player") is not None
+                else None
+            ),
+            play_title=data.get("play_title", ""),
         )
 
 
