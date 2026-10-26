@@ -34,6 +34,12 @@ Conventions:
   * A relative ``source_video`` is resolved against the project file's
     folder at load time when a file exists there; otherwise it is kept
     as written (and later resolved against the working directory).
+  * Optional ``telemetry`` block: ``{"track_file": "...", "pan_fov_deg":
+    95.0}`` names the game's Falcon .track file.  When present and
+    loadable, the renderer compensates keyframe interpolation for
+    camera pan (see tracking.py); when absent — phone clips, say —
+    rendering falls back to plain frame-space interpolation.
+    ``pan_fov_deg`` is an optional calibration override.
 """
 
 from __future__ import annotations
@@ -168,6 +174,47 @@ class RingSettings:
 
 
 @dataclass
+class TelemetrySettings:
+    """Optional Falcon telemetry source for camera compensation.
+
+    ``track_file`` names the game's .track file (relative paths are
+    resolved beside the project file at load, like ``source_video``).
+    ``pan_fov_deg`` optionally overrides the pan calibration — the
+    horizontal field of view the yaw compensation assumes (see
+    tracking.CameraCalibration); None keeps the calibrated default.
+    """
+
+    track_file: str
+    pan_fov_deg: Optional[float] = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.track_file, str) or not self.track_file.strip():
+            raise ValueError(
+                f"telemetry.track_file must be a non-empty string, got {self.track_file!r}"
+            )
+        if self.pan_fov_deg is not None:
+            self.pan_fov_deg = _num("telemetry.pan_fov_deg", self.pan_fov_deg, 20.0, 180.0)
+
+    def to_dict(self) -> dict:
+        out = {"track_file": self.track_file}
+        if self.pan_fov_deg is not None:
+            out["pan_fov_deg"] = self.pan_fov_deg
+        return out
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "TelemetrySettings":
+        if not isinstance(data, dict):
+            raise ValueError(f"telemetry must be an object, got {data!r}")
+        try:
+            return cls(
+                track_file=data["track_file"],
+                pan_fov_deg=data.get("pan_fov_deg"),
+            )
+        except KeyError as exc:
+            raise ValueError(f"telemetry missing field {exc}") from None
+
+
+@dataclass
 class ExportPreset:
     """A named output size.  Session 1 only stores these; the export
     sessions consume them."""
@@ -218,6 +265,7 @@ class HighlightProject:
     freeze_intro_s: float = 1.0
     ring: RingSettings = field(default_factory=RingSettings)
     export_presets: List[ExportPreset] = field(default_factory=default_export_presets)
+    telemetry: Optional[TelemetrySettings] = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_video, str) or not self.source_video.strip():
@@ -258,7 +306,7 @@ class HighlightProject:
     # ── serialization ────────────────────────────────────────────────────
 
     def to_dict(self) -> dict:
-        return {
+        out = {
             "version": PROJECT_VERSION,
             "source_video": self.source_video,
             "window": self.window.to_dict(),
@@ -269,6 +317,9 @@ class HighlightProject:
             "keyframes": [k.to_dict() for k in self.keyframes],
             "export_presets": [p.to_dict() for p in self.export_presets],
         }
+        if self.telemetry is not None:
+            out["telemetry"] = self.telemetry.to_dict()
+        return out
 
     @classmethod
     def from_dict(cls, data: dict) -> "HighlightProject":
@@ -285,6 +336,7 @@ class HighlightProject:
             raise ValueError(f"project missing field {exc}") from None
         if not isinstance(raw_keyframes, list):
             raise ValueError(f"keyframes must be a list, got {raw_keyframes!r}")
+        telemetry_raw = data.get("telemetry")
         return cls(
             source_video=source_video,
             window=window,
@@ -297,6 +349,11 @@ class HighlightProject:
                 ExportPreset.from_dict(p) for p in data.get("export_presets", [])
             ]
             or default_export_presets(),
+            telemetry=(
+                TelemetrySettings.from_dict(telemetry_raw)
+                if telemetry_raw is not None
+                else None
+            ),
         )
 
 
@@ -316,7 +373,8 @@ def load_project(path) -> HighlightProject:
     """Load a project file, validating every field.
 
     A relative ``source_video`` that names a file sitting beside the
-    project file is resolved to that absolute path.
+    project file is resolved to that absolute path; the telemetry
+    ``track_file`` gets the same treatment.
     """
     src = Path(path)
     data = json.loads(src.read_text(encoding="utf-8"))
@@ -326,4 +384,10 @@ def load_project(path) -> HighlightProject:
         beside = src.resolve().parent / video
         if beside.exists():
             project.source_video = str(beside)
+    if project.telemetry is not None:
+        track = Path(project.telemetry.track_file)
+        if not track.is_absolute():
+            beside = src.resolve().parent / track
+            if beside.exists():
+                project.telemetry.track_file = str(beside)
     return project

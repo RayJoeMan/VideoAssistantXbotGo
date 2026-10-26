@@ -18,6 +18,11 @@ Separation of concerns, for testability:
   * ``overlay_frame_rgba`` is a pure function of (project, frame index).
   * Only ``render_project`` touches subprocess and the disk beyond the
     overlay frames themselves.
+
+Ring positions come from a position provider (see
+``build_position_provider``): telemetry-compensated interpolation
+when the project names a Falcon .track file, plain frame-space
+interpolation otherwise.
 """
 
 from __future__ import annotations
@@ -38,7 +43,13 @@ from PIL import Image, ImageDraw, ImageFont
 from telemetry.logging_setup import get_logger
 
 from .project import HighlightProject, load_project
-from .tracking import position_at
+from .tracking import (
+    DEFAULT_FOV_X_DEG,
+    CameraCalibration,
+    CompensatedInterpolator,
+    load_camera_track,
+    position_at,
+)
 
 log = get_logger(__name__)
 
@@ -79,6 +90,60 @@ def frame_source_time(project: HighlightProject, frame_index: int, fps: int) -> 
 
 
 # ══════════════════════════════════════════════════════════════════════════
+# Position provider (telemetry load happens once, up front)
+# ══════════════════════════════════════════════════════════════════════════
+
+# A position provider maps source time -> (x, y, rel_scale): the ring
+# center in normalized frame coordinates plus the magnification
+# relative to the reference state (ring radii scale with it; 1.0 when
+# uncompensated or when the camera carries no zoom channel).
+
+
+def build_position_provider(project: HighlightProject, aspect: float):
+    """Return ``(provider, mode)`` for *project*.
+
+    Mode is ``"telemetry-compensated"`` when the project names a
+    telemetry track that loads and syncs to the source video, else
+    ``"frame-space"`` — plain keyframe interpolation, the pre-compensation
+    behavior, used for phone clips and as the safe fallback whenever
+    telemetry is missing, unreadable, or cannot be synced (wrong-clock
+    compensation would be worse than none).
+    """
+    if project.telemetry is not None:
+        camera = None
+        try:
+            camera = load_camera_track(
+                project.telemetry.track_file, project.source_video
+            )
+        except Exception as exc:  # missing/corrupt track: fall back, loudly
+            log.warning("telemetry track unusable (%s); falling back", exc)
+        if camera is not None:
+            fov = project.telemetry.pan_fov_deg or DEFAULT_FOV_X_DEG
+            interp = CompensatedInterpolator(
+                project.keyframes,
+                camera,
+                CameraCalibration(fov_x_deg=fov),
+                aspect,
+            )
+            log.info(
+                "position provider: telemetry-compensated (%d camera samples)",
+                len(camera),
+            )
+            return (
+                lambda t: (*interp.position_at(t), interp.scale_at(t)),
+                "telemetry-compensated",
+            )
+        log.warning(
+            "telemetry named but no sync could be built; falling back to "
+            "frame-space interpolation"
+        )
+    return (
+        lambda t: (*position_at(project.keyframes, t), 1.0),
+        "frame-space",
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════
 # Overlay rasterization (pure)
 # ══════════════════════════════════════════════════════════════════════════
 
@@ -96,19 +161,32 @@ def _load_font(size: int):
 
 
 def overlay_frame_rgba(
-    project: HighlightProject, frame_index: int, width: int, height: int, fps: int
+    project: HighlightProject,
+    frame_index: int,
+    width: int,
+    height: int,
+    fps: int,
+    provider=None,
 ) -> np.ndarray:
     """The (height, width, 4) uint8 RGBA overlay for one output frame.
 
     Contents: the dim mask (black, alpha = dim strength far from the
     player, fading to clear inside the ring), the gold ellipse ring at
     the interpolated ground position, and the tag text above the ring.
+
+    *provider* maps source time -> (x, y, rel_scale) and defaults to
+    plain frame-space keyframe interpolation; render_project passes a
+    telemetry-compensated provider when the project names a track.
     """
     t = frame_source_time(project, frame_index, fps)
-    nx, ny = position_at(project.keyframes, t)
+    if provider is None:
+        nx, ny = position_at(project.keyframes, t)
+        rel_scale = 1.0
+    else:
+        nx, ny, rel_scale = provider(t)
     cx, cy = nx * width, ny * height
-    rx = project.ring.rx * width
-    ry = project.ring.ry * height
+    rx = project.ring.rx * width * rel_scale
+    ry = project.ring.ry * height * rel_scale
 
     frame = np.zeros((height, width, 4), dtype=np.uint8)
     dim_alpha = project.dim.strength if project.dim.enabled else 0.0
@@ -163,14 +241,27 @@ def overlay_frame_rgba(
 
 
 def write_overlay_frames(
-    project: HighlightProject, frames_dir, width: int, height: int, fps: int
+    project: HighlightProject,
+    frames_dir,
+    width: int,
+    height: int,
+    fps: int,
+    provider=None,
 ) -> int:
-    """Rasterize every output frame into *frames_dir*; returns the count."""
+    """Rasterize every output frame into *frames_dir*; returns the count.
+
+    Without an explicit *provider*, one is built from the project
+    (telemetry-compensated when a usable track is named, else
+    frame-space) at the render's aspect ratio.
+    """
     out_dir = Path(frames_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
+    if provider is None:
+        provider, mode = build_position_provider(project, width / float(height))
+        log.info("overlay position mode: %s", mode)
     count = output_frame_count(project, fps)
     for i in range(count):
-        rgba = overlay_frame_rgba(project, i, width, height, fps)
+        rgba = overlay_frame_rgba(project, i, width, height, fps, provider=provider)
         Image.fromarray(rgba, "RGBA").save(out_dir / (FRAME_NAME_PATTERN % i))
     return count
 
