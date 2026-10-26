@@ -2,7 +2,11 @@
 
 Session 1 (Tier 1): the project file (project.py), smoothstep keyframe
 interpolation (tracking.py), and the spotlight renderer (render.py).
-Voiceover, captions and the dual exports land in later sessions.
+Session 2: voiceover takes with a ducked mix and loudnorm (audio.py),
+captions — faster-whisper transcription into project cues, burn-in
+plus an .srt sidecar (captions.py) — and editorial beats: slow-mo
+segments, mid-clip freezes and text callouts, all timed by the
+output-timeline math in timeline.py.  Dual exports land in Session 3.
 
 tracking.py also carries telemetry-compensated interpolation: when a
 project names Falcon .track telemetry, keyframes are interpolated in
@@ -12,7 +16,12 @@ spotted in the Session 1 smoke render).
 """
 
 from .project import (
+    BEAT_FREEZE,
+    BEAT_SLOWMO,
     PROJECT_VERSION,
+    Beat,
+    Callout,
+    CaptionCue,
     ClipWindow,
     DimSettings,
     ExportPreset,
@@ -20,21 +29,52 @@ from .project import (
     Keyframe,
     RingSettings,
     TelemetrySettings,
+    VoiceoverSettings,
+    VoiceoverTake,
     default_export_presets,
     load_project,
     save_project,
 )
+from .audio import (
+    TakeSpan,
+    build_duck_volume_filter,
+    build_mix_filters,
+    build_take_filter,
+    duck_gain_db_at,
+    loudnorm_filter,
+    merge_spans,
+    probe_duration,
+    silence_bed_filter,
+    take_spans,
+)
+from .captions import (
+    cues_from_segments,
+    cues_to_srt,
+    fill_project_captions,
+    merge_take_cues,
+    parse_srt,
+    read_srt,
+    transcribe_take_cues,
+    wrap_caption_lines,
+    write_srt,
+)
 from .render import (
+    build_effects_ffmpeg_command,
     build_ffmpeg_command,
     build_filtergraph,
     build_position_provider,
+    build_segment_audio_filters,
+    build_segment_video_filters,
+    callout_layout,
     frame_source_time,
     freeze_frame_count,
     output_frame_count,
     overlay_frame_rgba,
+    render_duration,
     render_project,
     write_overlay_frames,
 )
+from .timeline import Timeline, TimelineSegment, build_timeline
 from .tracking import (
     CameraCalibration,
     CameraState,
@@ -50,10 +90,15 @@ from .tracking import (
 )
 
 __all__ = [
+    "BEAT_FREEZE",
+    "BEAT_SLOWMO",
     "PROJECT_VERSION",
+    "Beat",
+    "Callout",
     "CameraCalibration",
     "CameraState",
     "CameraTrack",
+    "CaptionCue",
     "ClipWindow",
     "CompensatedInterpolator",
     "DimSettings",
@@ -61,24 +106,53 @@ __all__ = [
     "HighlightProject",
     "Keyframe",
     "RingSettings",
+    "TakeSpan",
     "TelemetrySettings",
+    "Timeline",
+    "TimelineSegment",
+    "VoiceoverSettings",
+    "VoiceoverTake",
+    "build_duck_volume_filter",
+    "build_effects_ffmpeg_command",
     "build_ffmpeg_command",
     "build_filtergraph",
+    "build_mix_filters",
     "build_position_provider",
+    "build_segment_audio_filters",
+    "build_segment_video_filters",
+    "build_take_filter",
+    "build_timeline",
+    "callout_layout",
+    "cues_from_segments",
+    "cues_to_srt",
     "default_export_presets",
+    "duck_gain_db_at",
+    "fill_project_captions",
     "frame_source_time",
     "frame_to_field",
     "field_to_frame",
     "freeze_frame_count",
     "load_camera_track",
     "load_project",
+    "loudnorm_filter",
+    "merge_spans",
+    "merge_take_cues",
     "output_frame_count",
     "overlay_frame_rgba",
+    "parse_srt",
     "position_at",
     "position_at_compensated",
+    "probe_duration",
+    "read_srt",
+    "render_duration",
     "render_project",
     "sample_positions",
     "save_project",
+    "silence_bed_filter",
     "smoothstep",
+    "take_spans",
+    "transcribe_take_cues",
+    "wrap_caption_lines",
     "write_overlay_frames",
+    "write_srt",
 ]

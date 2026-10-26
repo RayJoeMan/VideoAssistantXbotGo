@@ -40,6 +40,13 @@ Conventions:
     camera pan (see tracking.py); when absent — phone clips, say —
     rendering falls back to plain frame-space interpolation.
     ``pan_fov_deg`` is an optional calibration override.
+  * Optional Session 2 blocks: ``voiceover`` (narration takes placed
+    on the OUTPUT timeline, plus duck/loudnorm mix settings),
+    ``captions`` (cues on the output timeline), ``callouts`` (text
+    with a leader arrow on the SOURCE timeline, anchored to a
+    keyframe) and ``beats`` (slow-mo / freeze marks on the source
+    timeline).  Absent blocks serialize absent — a Session 1 project
+    file round-trips byte-identically.
 """
 
 from __future__ import annotations
@@ -214,6 +221,245 @@ class TelemetrySettings:
             raise ValueError(f"telemetry missing field {exc}") from None
 
 
+
+@dataclass
+class VoiceoverTake:
+    """One imported narration take, placed on the OUTPUT timeline.
+
+    ``file`` is a wav/m4a/mp3 (a phone voice memo is fine); relative
+    paths resolve beside the project file at load, like
+    ``source_video``.  ``start`` is in OUTPUT seconds — the rendered
+    clip's own clock, freeze intro included — because a take is
+    recorded against the finished cut, and the mix, the ducking and
+    the captions all live on that clock.  ``gain_db`` is a per-take
+    trim applied before the mix.
+    """
+
+    file: str
+    start: float
+    gain_db: float = 0.0
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.file, str) or not self.file.strip():
+            raise ValueError(
+                f"voiceover take file must be a non-empty string, got {self.file!r}"
+            )
+        self.start = _num("voiceover take.start", self.start, 0.0, 1e6)
+        self.gain_db = _num("voiceover take.gain_db", self.gain_db, -40.0, 20.0)
+
+    def to_dict(self) -> dict:
+        out = {"file": self.file, "start": self.start}
+        if self.gain_db:
+            out["gain_db"] = self.gain_db
+        return out
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "VoiceoverTake":
+        if not isinstance(data, dict):
+            raise ValueError(f"voiceover take must be an object, got {data!r}")
+        try:
+            return cls(
+                file=data["file"],
+                start=data["start"],
+                gain_db=data.get("gain_db", 0.0),
+            )
+        except KeyError as exc:
+            raise ValueError(f"voiceover take missing field {exc}") from None
+
+
+@dataclass
+class VoiceoverSettings:
+    """Narration mix settings (spec Feature 3).
+
+    While a take speaks, the game audio ducks ``duck_db`` below it;
+    the final mix is loudness-normalized to ``target_lufs``.
+    """
+
+    takes: List[VoiceoverTake] = field(default_factory=list)
+    duck_db: float = 12.0
+    target_lufs: float = -16.0
+
+    def __post_init__(self) -> None:
+        self.duck_db = _num("voiceover.duck_db", self.duck_db, 0.0, 40.0)
+        self.target_lufs = _num("voiceover.target_lufs", self.target_lufs, -40.0, -5.0)
+        starts = [t.start for t in self.takes]
+        if any(b < a for a, b in zip(starts, starts[1:])):
+            raise ValueError("voiceover takes must be ordered by start")
+
+    def to_dict(self) -> dict:
+        return {
+            "duck_db": self.duck_db,
+            "target_lufs": self.target_lufs,
+            "takes": [t.to_dict() for t in self.takes],
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "VoiceoverSettings":
+        if not isinstance(data, dict):
+            raise ValueError(f"voiceover must be an object, got {data!r}")
+        return cls(
+            takes=[VoiceoverTake.from_dict(t) for t in data.get("takes", [])],
+            duck_db=data.get("duck_db", 12.0),
+            target_lufs=data.get("target_lufs", -16.0),
+        )
+
+
+@dataclass
+class CaptionCue:
+    """One caption, on the OUTPUT timeline (the clock of the VO take
+    it was transcribed from).  ``text`` may carry newlines from the
+    human edit pass; the renderer re-wraps to at most two lines."""
+
+    start: float
+    end: float
+    text: str
+
+    def __post_init__(self) -> None:
+        self.start = _num("caption.start", self.start, 0.0, 1e6)
+        self.end = _num("caption.end", self.end, 0.0, 1e6)
+        if self.end <= self.start:
+            raise ValueError(
+                f"caption end ({self.end}) must be after start ({self.start})"
+            )
+        if not isinstance(self.text, str) or not self.text.strip():
+            raise ValueError(f"caption text must be a non-empty string, got {self.text!r}")
+        self.text = self.text.strip()
+
+    def to_dict(self) -> dict:
+        return {"start": self.start, "end": self.end, "text": self.text}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "CaptionCue":
+        if not isinstance(data, dict):
+            raise ValueError(f"caption must be an object, got {data!r}")
+        try:
+            return cls(start=data["start"], end=data["end"], text=data["text"])
+        except KeyError as exc:
+            raise ValueError(f"caption missing field {exc}") from None
+
+
+@dataclass
+class Callout:
+    """A text callout with a leader arrow (spec Feature 5).
+
+    Shown while the SOURCE clock is inside [start, end]; the arrow
+    points at the position of keyframe ``keyframe`` (an index into
+    the project's keyframes) — the annotated moment of the play.
+    """
+
+    text: str
+    start: float
+    end: float
+    keyframe: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.text, str) or not self.text.strip():
+            raise ValueError(f"callout text must be a non-empty string, got {self.text!r}")
+        self.text = self.text.strip()
+        self.start = _num("callout.start", self.start, 0.0, 1e9)
+        self.end = _num("callout.end", self.end, 0.0, 1e9)
+        if self.end <= self.start:
+            raise ValueError(
+                f"callout end ({self.end}) must be after start ({self.start})"
+            )
+        if int(self.keyframe) != self.keyframe or int(self.keyframe) < 0:
+            raise ValueError(
+                f"callout keyframe must be a non-negative int index, got {self.keyframe!r}"
+            )
+        self.keyframe = int(self.keyframe)
+
+    def to_dict(self) -> dict:
+        return {
+            "text": self.text,
+            "start": self.start,
+            "end": self.end,
+            "keyframe": self.keyframe,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Callout":
+        if not isinstance(data, dict):
+            raise ValueError(f"callout must be an object, got {data!r}")
+        try:
+            return cls(
+                text=data["text"],
+                start=data["start"],
+                end=data["end"],
+                keyframe=data["keyframe"],
+            )
+        except KeyError as exc:
+            raise ValueError(f"callout missing field {exc}") from None
+
+
+BEAT_SLOWMO = "slowmo"
+BEAT_FREEZE = "freeze"
+MIN_SLOWMO_RATE = 0.25
+MAX_FREEZE_S = 5.0
+
+
+@dataclass
+class Beat:
+    """An editorial beat on the SOURCE timeline (spec Feature 5).
+
+    kind ``slowmo``: source [start, end] plays at ``rate`` (0.5x by
+    default).  kind ``freeze``: playback holds the frame at ``start``
+    for ``duration`` output seconds, then resumes from the same
+    instant (``end`` mirrors ``start``; serialized as ``at``).
+    """
+
+    kind: str
+    start: float
+    end: float = 0.0
+    rate: float = 0.5
+    duration: float = 1.0
+
+    def __post_init__(self) -> None:
+        if self.kind not in (BEAT_SLOWMO, BEAT_FREEZE):
+            raise ValueError(
+                f"beat kind must be 'slowmo' or 'freeze', got {self.kind!r}"
+            )
+        self.start = _num("beat.start", self.start, 0.0, 1e9)
+        if self.kind == BEAT_SLOWMO:
+            self.end = _num("beat.end", self.end, 0.0, 1e9)
+            if self.end <= self.start:
+                raise ValueError(
+                    f"slowmo beat end ({self.end}) must be after start ({self.start})"
+                )
+            self.rate = _num("beat.rate", self.rate, MIN_SLOWMO_RATE, 1.0)
+        else:
+            self.end = self.start
+            self.duration = _num("beat.duration", self.duration, 0.05, MAX_FREEZE_S)
+
+    def to_dict(self) -> dict:
+        if self.kind == BEAT_SLOWMO:
+            return {
+                "kind": self.kind,
+                "start": self.start,
+                "end": self.end,
+                "rate": self.rate,
+            }
+        return {"kind": self.kind, "at": self.start, "duration": self.duration}
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Beat":
+        if not isinstance(data, dict):
+            raise ValueError(f"beat must be an object, got {data!r}")
+        kind = data.get("kind")
+        try:
+            if kind == BEAT_SLOWMO:
+                return cls(
+                    kind=kind,
+                    start=data["start"],
+                    end=data["end"],
+                    rate=data.get("rate", 0.5),
+                )
+            if kind == BEAT_FREEZE:
+                return cls(kind=kind, start=data["at"], duration=data.get("duration", 1.0))
+        except KeyError as exc:
+            raise ValueError(f"beat missing field {exc}") from None
+        raise ValueError(f"beat kind must be 'slowmo' or 'freeze', got {kind!r}")
+
+
 @dataclass
 class ExportPreset:
     """A named output size.  Session 1 only stores these; the export
@@ -266,6 +512,10 @@ class HighlightProject:
     ring: RingSettings = field(default_factory=RingSettings)
     export_presets: List[ExportPreset] = field(default_factory=default_export_presets)
     telemetry: Optional[TelemetrySettings] = None
+    voiceover: Optional[VoiceoverSettings] = None
+    captions: List[CaptionCue] = field(default_factory=list)
+    callouts: List[Callout] = field(default_factory=list)
+    beats: List[Beat] = field(default_factory=list)
 
     def __post_init__(self) -> None:
         if not isinstance(self.source_video, str) or not self.source_video.strip():
@@ -289,6 +539,32 @@ class HighlightProject:
         names = [p.name for p in self.export_presets]
         if len(set(names)) != len(names):
             raise ValueError(f"export preset names must be unique, got {names}")
+        for callout in self.callouts:
+            if callout.keyframe >= len(self.keyframes):
+                raise ValueError(
+                    f"callout keyframe index {callout.keyframe} out of range "
+                    f"({len(self.keyframes)} keyframes)"
+                )
+            if not (self.window.start <= callout.start and callout.end <= self.window.end):
+                raise ValueError(
+                    f"callout [{callout.start}, {callout.end}] lies outside the "
+                    f"clip window [{self.window.start}, {self.window.end}]"
+                )
+        last_beat_start = None
+        last_slowmo_end = None
+        for beat in self.beats:
+            if not (self.window.start <= beat.start and beat.end <= self.window.end):
+                raise ValueError(
+                    f"beat at {beat.start} lies outside the clip window "
+                    f"[{self.window.start}, {self.window.end}]"
+                )
+            if last_beat_start is not None and beat.start <= last_beat_start:
+                raise ValueError("beats must have strictly increasing start times")
+            if last_slowmo_end is not None and beat.start < last_slowmo_end:
+                raise ValueError("beats must not overlap a slow-mo segment")
+            if beat.kind == BEAT_SLOWMO:
+                last_slowmo_end = beat.end
+            last_beat_start = beat.start
 
     @property
     def output_duration(self) -> float:
@@ -319,6 +595,14 @@ class HighlightProject:
         }
         if self.telemetry is not None:
             out["telemetry"] = self.telemetry.to_dict()
+        if self.voiceover is not None:
+            out["voiceover"] = self.voiceover.to_dict()
+        if self.captions:
+            out["captions"] = [c.to_dict() for c in self.captions]
+        if self.callouts:
+            out["callouts"] = [c.to_dict() for c in self.callouts]
+        if self.beats:
+            out["beats"] = [b.to_dict() for b in self.beats]
         return out
 
     @classmethod
@@ -354,6 +638,14 @@ class HighlightProject:
                 if telemetry_raw is not None
                 else None
             ),
+            voiceover=(
+                VoiceoverSettings.from_dict(data["voiceover"])
+                if data.get("voiceover") is not None
+                else None
+            ),
+            captions=[CaptionCue.from_dict(c) for c in data.get("captions", [])],
+            callouts=[Callout.from_dict(c) for c in data.get("callouts", [])],
+            beats=[Beat.from_dict(b) for b in data.get("beats", [])],
         )
 
 
@@ -390,4 +682,11 @@ def load_project(path) -> HighlightProject:
             beside = src.resolve().parent / track
             if beside.exists():
                 project.telemetry.track_file = str(beside)
+    if project.voiceover is not None:
+        for take in project.voiceover.takes:
+            take_file = Path(take.file)
+            if not take_file.is_absolute():
+                beside = src.resolve().parent / take_file
+                if beside.exists():
+                    take.file = str(beside)
     return project
